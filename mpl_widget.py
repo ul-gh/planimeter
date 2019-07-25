@@ -49,6 +49,8 @@ class MplWidget(QWidget):
         # What happens when the plot canvas is clicked..
         self.click_mode = MODES.DEFAULT
         self.curr_trace_no = 0
+        # This stores the pyplot.Lines2D object when a plot item was picked
+        self.picked_obj = None
 
         ########## Access to the data model
         self.model = model
@@ -75,9 +77,11 @@ class MplWidget(QWidget):
         vbox.addWidget(self.canvas_qt)
 
         ########## Connect non-public events and signals
-        self.canvas_qt.mpl_connect("button_press_event", self._plot_clicked)
-        #self.canvas_qt.mpl_connect("motion_notify_event", self.onMouseMove)
-        #self.canvas_qt.mpl_connect("pick_event", self.itemPicked)
+        self.canvas_qt.mpl_connect("button_press_event", self.on_button_press)
+        self.canvas_qt.mpl_connect(
+            "button_release_event", self.on_button_release)
+        self.canvas_qt.mpl_connect("motion_notify_event", self.on_motion_notify)
+        self.canvas_qt.mpl_connect("pick_event", self.on_pick_event)
 
         self.canvas_qt.draw_idle()
         # FIXME: testing only:
@@ -277,7 +281,7 @@ class MplWidget(QWidget):
         self.canvas_qt.draw_idle()
 
 
-    def _plot_clicked(self, event):
+    def on_button_press(self, event):
         ########## Add points etc.
         # event: Matplotlib event object
         xydata = (event.xdata, event.ydata)
@@ -325,6 +329,17 @@ class MplWidget(QWidget):
                 # emits an error message
                 model.using_view_add_trace_pt_px(artist, self.curr_trace_no)
 
+    def on_pick(self, event):
+        pass
+
+    def on_button_release(self, event):
+        self.picked_obj = None
+
+    def on_motion_notify(self, event):
+        if self.picked_artist is None:
+            return
+        self.picked_artist.set_data(event.xdata, event.ydata)
+        self.canvas_qt.draw_idle()
 
     def confirm_delete(self):
         self.messagebox.setIcon(QMessageBox.Warning)

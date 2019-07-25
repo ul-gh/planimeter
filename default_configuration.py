@@ -35,12 +35,12 @@ class TRACE():
     # Default number of X axis points for interpolation and data export
     n_pts_interpolation = 100
     # Trace raw points format, same for all traces
-    pts_fmt = {"marker": "x", "markersize": 10.0}
+    pts_fmt = {"picker": 5.0, "marker": "x", "markersize": 10.0}
 
 class X_AXIS():
     """Settings for X-Axis
     """
-    pts_fmt = {"color": "y", "marker": "s", "markersize": 15.0,
+    pts_fmt = {"color": "y", "picker": 5.0, "marker": "s", "markersize": 15.0,
                "markerfacecolor": "none", "markeredgewidth": 2.0}
     log_scale = False
     log_base = 10
@@ -50,7 +50,7 @@ class X_AXIS():
 class Y_AXIS():
     """Settings for Y-Axis
     """
-    pts_fmt = {"color": "y", "marker": "s", "markersize": 15.0,
+    pts_fmt = {"color": "y", "picker": 5.0, "marker": "s", "markersize": 15.0,
                "markerfacecolor": "none", "markeredgewidth": 2.0}
     log_scale = False
     log_base = 10
