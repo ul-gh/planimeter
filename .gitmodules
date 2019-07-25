@@ -1,0 +1,3 @@
+[submodule "upylib"]
+	path = upylib
+	url = http://github.com/ul-gh/upylib
