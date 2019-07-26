@@ -338,8 +338,12 @@ class MplWidget(QWidget):
     def on_motion_notify(self, event):
         if self.picked_artist is None:
             return
-        self.picked_artist.set_data(event.xdata, event.ydata)
-        self.canvas_qt.draw_idle()
+        xdata, ydata = picked_artist.get_data()
+        xdata[ind] = e.xdata
+        ydata[ind] = e.ydata
+        picked_artist.set_data(xdata, ydata)
+        fig.canvas.draw_idle()
+
 
     def confirm_delete(self):
         self.messagebox.setIcon(QMessageBox.Warning)
