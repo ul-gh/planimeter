@@ -18,10 +18,9 @@ last_event = []
 def move(e):
     if picked_artist is None:
         return
-    xdata, ydata = picked_artist.get_data()
-    xdata[ind] = e.xdata
-    ydata[ind] = e.ydata
-    picked_artist.set_data(xdata, ydata)
+    xydata = picked_artist.get_xydata()
+    xydata[ind] = (e.xdata, e.ydata)
+    picked_artist.set_data(*xydata.T)
     fig.canvas.draw_idle()
 
 def foopick(e):

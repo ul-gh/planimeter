@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from collections import namedtuple
+from numpy import NaN, isnan
 
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QMessageBox
@@ -81,7 +82,7 @@ class MplWidget(QWidget):
         self.canvas_qt.mpl_connect(
             "button_release_event", self.on_button_release)
         self.canvas_qt.mpl_connect("motion_notify_event", self.on_motion_notify)
-        self.canvas_qt.mpl_connect("pick_event", self.on_pick_event)
+        self.canvas_qt.mpl_connect("pick_event", self.on_pick)
 
         self.canvas_qt.draw_idle()
         # FIXME: testing only:
@@ -171,20 +172,10 @@ class MplWidget(QWidget):
         model = self.model
         # X and Y axis:
         for ax in model.x_ax, model.y_ax:
-            for i, artist in enumerate(ax.view_objs):
-                if artist is not None:
-                    if ax.pts_px[i] is not None:
-                        artist.set_data(*ax.pts_px[i])
-                    else:
-                        artist.remove()
-                        ax.view_objs[i] = None
-                        del model.view_model_map[artist]
-                else:
-                    # artist is None, draw new point
-                    artist, = self.mpl_ax.plot(*ax.pts_px[i], **ax.pts_fmt)
-                    ax.view_objs[i] = artist
-                    model.view_model_map[artist] = ax
-
+            if ax.pts_view_obj is not None:
+                ax.pts_view_obj.set_data(*ax.pts_px.T)
+            else:
+                ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
         # Origin:
         if model.origin_px is None:
             if model.origin_view_obj is not None:
@@ -203,6 +194,22 @@ class MplWidget(QWidget):
                     # is a calculated property, not input data.
                 else:
                     model.origin_view_obj.set_data(*model.origin_px)
+
+        # If axes setup is complete, emit signals etc.
+        if not isnan(model.x_ax.pts_px).any():
+            # Two X-axis points complete. Reset Operating mode.
+            self.valid_x_axis_setup.emit(True)
+            print("X axis points complete")
+            self.click_mode = MODES.DEFAULT
+            self.mode_sw_default.emit()
+
+        if not isnan(model.y_ax.pts_px).any():
+            # Two Y-axis points complete. Reset Operating mode.
+            self.valid_y_axis_setup.emit(True)
+            print("Y axis points complete")
+            self.click_mode = MODES.DEFAULT
+            self.mode_sw_default.emit()
+
         # Anyways, after updating axes point markers, redraw plot canvas:
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
@@ -221,28 +228,10 @@ class MplWidget(QWidget):
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
         for tr in traces:
             ########## Update raw pixel points
-            n_pts = len(tr.pts_px)
-            n_view_objs = len(tr.view_objs)
-            print(  "new debug: trace_no, n_pts, n_view_objs",
-                    model.traces.index(tr), n_pts, n_view_objs)
-            if n_view_objs > n_pts:
-                # There is more markers than data. Delete excess markers.
-                for i in range(n_pts, n_view_objs):
-                    artist = tr.view_objs[i]
-                    #if obj in model.view_model_map:
-                    #    del model.view_model_map[obj]
-                    del model.view_model_map[artist]
-                    artist.remove()
-                    del tr.view_objs[i]
-            # Anyways, after removing excess markers:
-            # There is enough or more data to update markers (or no markers).
-            # Update existing maker handles, then extend list of handles
-            for i in range(n_view_objs):
-                tr.view_objs[i].set_data(*tr.pts_px[i])
-            for i in range(n_view_objs, n_pts):
-                artist, = self.mpl_ax.plot(*tr.pts_px[i], **tr.pts_fmt)
-                tr.view_objs.append(artist)
-                model.view_model_map[artist] = tr.pts_px
+            if tr.pts_view_obj is not None:
+                tr.pts_view_obj.set_data(*tr.pts_px.T, **tr.pts_fmt)
+            else:
+                tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
         # Anyways, after updating point markers, redraw plot canvas:
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
@@ -259,22 +248,17 @@ class MplWidget(QWidget):
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
         ########## Update interpolated trace if available
         for tr in traces:
-            if tr.pts_lin_i is not None:
-                # Draw or update data on an interpolated plot line.
-                # Backtransform trace to pixel data coordinate system
-                pts_i_px = model.get_pts_lin_i_px_coords(tr)
-                artist = tr.pts_i_view_obj
-                if artist is None:
-                    # Draw trace on matplotlib widget
-                    artist, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
-                    tr.pts_i_view_obj = artist
-                else:
-                    # Trace handle for pts_lin_i exists. Update data.
-                    artist.set_data(*pts_i_px.T)
-            elif tr.pts_i_view_obj is not None:
-                # No data in model but trace handle exists. Delete trace.
-                tr.pts_i_view_obj.remove()
-                tr.pts_i_view_obj = None
+            # Draw or update data on an interpolated plot line.
+            # Backtransform trace to pixel data coordinate system
+            pts_i_px = model.get_pts_lin_i_px_coords(tr)
+            artist = tr.pts_i_view_obj
+            if artist is None:
+                # Draw trace on matplotlib widget
+                artist, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
+                tr.pts_i_view_obj = artist
+            else:
+                # Trace handle for pts_lin_i exists. Update data.
+                artist.set_data(*pts_i_px.T)
         ########## After updating all traces and markers, redraw plot canvas
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
@@ -291,30 +275,10 @@ class MplWidget(QWidget):
             return
 
         if self.click_mode == MODES.SETUP_X_AXIS:
-            artist, = self.mpl_ax.plot(*xydata, **model.x_ax.pts_fmt)
-            self.canvas_qt.draw_idle()
-            # Add point to the model. In case the value is invalid,
-            # emits an error message
-            model.using_view_add_x_ax_pt_px(artist)
-            if None not in model.x_ax.pts_px:
-                # Two X-axis points complete. Reset Operating mode.
-                self.valid_x_axis_setup.emit(True)
-                print("X axis points complete")
-                self.click_mode = MODES.DEFAULT
-                self.mode_sw_default.emit()
+            model.x_ax.add_pt_px(xydata)
 
         if self.click_mode == MODES.SETUP_Y_AXIS:
-            artist, = self.mpl_ax.plot(*xydata, **model.y_ax.pts_fmt)
-            self.canvas_qt.draw_idle()
-            # Add point to the model. In case the value is invalid,
-            # emits an error message
-            model.using_view_add_y_ax_pt_px(artist)
-            if None not in model.y_ax.pts_px:
-                # Two Y-axis points complete. Reset Operating mode.
-                self.valid_y_axis_setup.emit(True)
-                print("Y axis points complete")
-                self.click_mode = MODES.DEFAULT
-                self.mode_sw_default.emit()
+            model.y_ax.add_pt_px(xydata)
 
         if self.click_mode == MODES.ADD_TRACE_PTS:
             if not model.axes_setup_is_complete():
@@ -322,12 +286,10 @@ class MplWidget(QWidget):
                 self.click_mode = MODES.DEFAULT
                 self.mode_sw_default.emit()
             else:
-                curr_trace = model.traces[self.curr_trace_no]
-                artist, = self.mpl_ax.plot(*xydata, **curr_trace.pts_fmt)
-                self.canvas_qt.draw_idle()
                 # Add point to the model. In case the value is invalid,
                 # emits an error message
-                model.using_view_add_trace_pt_px(artist, self.curr_trace_no)
+                tr = model.traces[self.curr_trace_no]
+                tr.add_pt_px(xydata)
 
     def on_pick(self, event):
         pass

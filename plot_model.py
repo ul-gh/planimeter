@@ -3,6 +3,7 @@
 from functools import partial
 
 import numpy as np
+from numpy import NaN, isnan
 from scipy.interpolate import interp1d
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
@@ -130,10 +131,10 @@ class DataModel(QObject):
         # This is done by extrapolating axes sections down to zero value.
         # Because of limited accuracy of graphic point selection, the finally
         # used origin offset is averaged between both axes.
-        origin_xax = np.array(x_ax_px[0]) - x_ax_vect * (
+        origin_xax = x_ax_px[0] - x_ax_vect * (
             x_ax_data[0] / (x_ax_data[1] - x_ax_data[0])
             )
-        origin_yax = np.array(y_ax_px[0]) - y_ax_vect * (
+        origin_yax = y_ax_px[0] - y_ax_vect * (
             y_ax_data[0] / (y_ax_data[1] - y_ax_data[0])
             )
         # The result axes offset is later used for transformating all points
@@ -185,7 +186,7 @@ class DataModel(QObject):
         """
         # Offset raw points by pixel coordinate offset of data axes origin.
         # pts_px is list of x,y-tuples
-        pts_shifted = np.array(trace.pts_px) - self.origin_px
+        pts_shifted = trace.pts_px - self.origin_px
         # Transform into data coodinates using pre-calculated matrix.
         # T is a property alias for the numpy.ndarray.transpose method.
         pts_lin = (self._px_to_data_m @ pts_shifted.T).T
@@ -194,10 +195,13 @@ class DataModel(QObject):
         trace.pts_lin = np.unique(pts_lin, axis=0)
 
     def _interpolate_cubic_splines(self, trace) -> None:
-        """Acts on linear coordinates"""
+        """Acts on linear coordinates.
+        Needs at least four data points for interpolation."""
+        if pts.shape[0] < 4:
+            return
         pts = trace.pts_lin
         # Scipy interpolate
-        f_interp = interp1d(pts[:,0], pts[:,1], kind="cubic")
+        f_interp = interp1d(*pts.T, kind="cubic")
         # Generate finer grid
         xgrid = np.linspace(pts[0,0], pts[-1,0], num=trace.n_pts_interpolation)
         yvals = f_interp(xgrid)
@@ -207,17 +211,15 @@ class DataModel(QObject):
         """For log axes, the linearised coordinates are transformed
         back to original logarithmic axes scale. No action for lin axes.
         """
-        pts = np.copy(trace.pts_lin)
-        # If less than four points have been set, no interpolation is available
-        pts_i = None if trace.pts_lin_i is None else np.copy(trace.pts_lin_i)
+        # Make a copy to keep the original linearised coordinates
+        pts = trace.pts_lin.copy()
+        pts_i = trace.pts_lin_i.copy()
         if self.x_ax.log_scale:
             pts[:,0] = np.power(self.x_ax.log_base, pts[:,0])
-            if pts_i is not None:
-                pts_i[:,0] = np.power(self.x_ax.log_base, pts_i[:,0])
+            pts_i[:,0] = np.power(self.x_ax.log_base, pts_i[:,0])
         if self.y_ax.log_scale:
             pts[:,1] = np.power(self.y_ax.log_base, pts[:,1])
-            if pts_i is not None:
-                pts_i[:,1] = np.power(self.y_ax.log_base, pts_i[:,1])
+            pts_i[:,1] = np.power(self.y_ax.log_base, pts_i[:,1])
         trace.pts = pts
         trace.pts_i = pts_i
 
@@ -233,19 +235,15 @@ class DataModel(QObject):
         """Returns graph mouse selected points in linearised pixel data
         coordinate system. Used for backplotting the transformed points.
         """
-        return (
-                (self._data_to_px_m @ trace.pts_lin.T).T
-                + self.origin_px
-                )
+        # Transformation matrix applied to points as column vectors, plus offset
+        return (self._data_to_px_m @ trace.pts_lin.T).T + self.origin_px
     
     def get_pts_lin_i_px_coords(self, trace) -> np.ndarray:
         """Returns graph interpolated points in linearised pixel data
         coordinate system. Used for backplotting the interpolated points.
         """
-        return (
-                (self._data_to_px_m @ trace.pts_lin_i.T).T
-                + self.origin_px
-                )
+        # Transformation matrix applied to points as column vectors, plus offset
+        return (self._data_to_px_m @ trace.pts_lin_i.T).T + self.origin_px
 
     @pyqtSlot()
     @pyqtSlot(int)
@@ -258,19 +256,15 @@ class DataModel(QObject):
         # if needed. "None" really means none selected, i.e. update all traces.
         traces = self.traces if trace_no is None else [self.traces[trace_no]]
         for tr in traces:
-            if len(tr.pts_px) == 0:
+            if tr.pts_px.shape[0] == 0:
                 # If no points are set or if these have been deleted, reset
                 # model properties to initial values
-                tr.pts_lin = None
-                tr.pts_lin_i = None
-                tr.pts = None
-                tr.pts_i = None
+                tr.init_data()
             else:
+                # These calls do the heavy work
                 self._px_to_linear_data_coords(tr)
-                # Cubic spline interpolation needs at least four data points
-                if len(tr.pts_lin) > 3:
-                    self._interpolate_cubic_splines(tr)
-                # Original coordinates can be logarithmic or linear
+                self._interpolate_cubic_splines(tr)
+                # Transform result data coordinates back to log scale if needed
                 self._handle_log_scale(tr)
         # Emit signals informing of updated trace data
         if trace_no is None:
@@ -405,49 +399,53 @@ class Trace(QObject):
         # Number of X-axis interpolation points for export and display
         self.n_pts_interpolation = tr_conf.n_pts_interpolation
 
+        ########## Associated view objects
+        # For raw pts
+        self.pts_view_obj = None # Optional: pyplot.Line2D
+        # For pts_i curve
+        self.pts_i_view_obj = None
+
         ########## Plot Data
-        # pts_px is list of x,y-tuples (or lists) of image pixel coordinates
-        self.pts_px = []
+        self.init_data()
+
+    def init_data(self):
+        # pts_px is array of image pixel coordinates, x and y in rows
+        self.pts_px = np.empty((0, 2))
         # pts_lin is array of x,y-tuples of linear or linearised
         # data coordinates. These are calculated by transformation
         # of image pixel vector into data coordinate system.
         # These are also used for the interactive plot.
-        self.pts_lin = None # array(float[*][2])
+        self.pts_lin = np.empty((0, 2))
         # pts_lin_i is array of x,y-tuples of the same graph
         # with user-defined x grid. Y-values are interpolated.
-        self.pts_lin_i = None # array(float[*][2])
+        self.pts_lin_i = np.empty((0, 2))
         # pts and pts_i are final result to be output.
         # For linear axes, these are copies of pts_lin and pts_lin_i.
         # For log axes, the values are calculated.
-        self.pts = None # array(float[*][2])
-        self.pts_i = None # array(float[*][2])
+        self.pts = np.empty((0, 2))
+        self.pts_i = np.empty((0, 2))
 
-        ########## List storing associated view objects for raw pts
-        self.view_objs = []
-        # View handle for pts_i curve
-        self.pts_i_view_obj = None
 
-    def add_pt_px(self, xydata: list, view_obj=None):
-        self.pts_px.append(xydata)
-
-        # If no view object was supplied, trigger a view redraw of raw points,
-        # otherwise register the supplied object with this point
-        if view_obj is None:
-            self.redraw_pts_px.emit()
-        else:
-            self.view_objs.append(view_obj)
+    def add_pt_px(self, xydata):
+        self.pts_px = np.vstack((self.pts_px, xydata))
+        # Trigger an update of the view
+        self.redraw_pts_px.emit()
+        # Update of the model results plus view update of results
         self.input_changed.emit()
 
-    def update_pt_px(self, index: int, xydata: list):
+    def update_pt_px(self, index: int, xydata):
         # Assuming this is called from the view only thus raw points need not
         # be redrawn
         self.pts_px[index] = xydata
+        # Update of the model results plus view update of results
         self.input_changed.emit()
 
     def delete_pt_px(self, index: int):
-        # Assuming this is called from the view only thus indices are in sync.
-        del self.pts_px[index]
-        del self.view_objs[index]
+        self.pts_px = np.delete(self.pts_px, index, axis=0)
+        # Trigger an update of the view
+        self.redraw_pts_px.emit()
+        # Update of the model results plus view update of results
+        self.input_changed.emit()
 
 
 class Axis(QObject):
@@ -482,12 +480,12 @@ class Axis(QObject):
 
         ########## Axis data
         # Two points defining an axis section in pixel coordinate space
-        self.pts_px = [None, None] # Optional: [[Float, Float], [Float, Float]]
+        self.pts_px = np.full((2, 2), NaN)
         # Axes section values in data space
         self.pts_data = [0.0, None] # Optional: [Float, Float]
 
-        ########## List storing associated view objects
-        self.view_objs = [None, None] # Optional: [pyplot.Line2D]
+        ########## Associated view object
+        self.pts_view_obj = None # Optional: pyplot.Line2D
  
 
     @pyqtSlot(float)
@@ -525,75 +523,69 @@ class Axis(QObject):
         self.log_scale = bool(state)
         self.input_changed.emit()
 
-    def add_pt_px(self, xydata: list, view_obj=None):
+    def add_pt_px(self, xydata):
         """Add a point defining an axis section
         
-        xydata: tuple(x, y)
+        xydata: (x, y)-tuple or np.array shape (2, )
 
         If both points are unset, set the first one.
         If both points are set, delete second and set first one.
         If only one point remains, i.e. this is the second one, do a
         validity check and set second one only if input data is valid.
 
-        Emits error message if invalid.
+        Emits error message signal if invalid, emits view update triggers
         """
-        both_unset = self.pts_px[0] is None and self.pts_px[1] is None
-        none_unset = None not in self.pts_px
-        second_unset = self.pts_px[1] is None
+        pts_px = self.pts_px
+        both_unset = isnan(pts_px[0]).any() and isnan(pts_px[1]).any()
+        none_unset = not isnan(pts_px).any()
+        second_unset = isnan(pts_px[1]).any()
         pt_index = 0
         if none_unset:
             # Invalidate second point, so that it will be set in next call
-            self.pts_px[1] = None
+            # Also, this makes matplotlib not plot this point
+            self.pts_px[1] = (NaN, NaN)
         elif not both_unset:
             # Only one point is still unset.
             if second_unset:
                 pt_index = 1
             # Check if input point is too close to other point, emit
             # error message and return if this is the case
-            pts_distance = np.linalg.norm(
-                np.subtract(xydata, self.pts_px[pt_index - 1]))
+            pts_distance = np.linalg.norm(pts_px[pt_index-1] - xydata)
             if np.isclose(pts_distance, 0.0, atol=self.atol):
                 self.value_error.emit(
                     "X axis section must not be zero length")
                 return
         # Point validated or no validity check necessary
-        self.pts_px[pt_index] = xydata
+        pts_px[pt_index] = xydata
         # If no view object was supplied, trigger a view redraw of raw points,
         # otherwise register the supplied object with this point
-        if view_obj is None:
-            self.redraw_pts_px.emit()
-        else:
-            self.view_objs[pt_index] = view_obj
+        self.redraw_pts_px.emit()
         self.input_changed.emit()
 
 
-    def update_pt_px(self, index, xydata: list):
+    def update_pt_px(self, index: int, xydata):
         """Update axis point in pixel coordinates 
         
-        index: int
-        xydata: tuple(x, y)
-
         Leave values untouched and emit error message if
         data would yield a zero-length axis section
         """
         # Check validity if other point is already set
-        other_pt = self.pts_px[index - 1]
+        other_pt = self.pts_px[index-1]
         if None not in other_pt:
-            pts_distance = np.linalg.norm(np.subtract(xydata, other_pt))
+            pts_distance = np.linalg.norm(other_pt - xydata)
             if np.isclose(pts_distance, 0.0, atol=self.atol):
                 self.value_error.emit("X axis section must not be zero length")
                 return
         # Validity check passed or skipped
         self.pts_px[index] = xydata
+        self.redraw_pts_px.emit()
         self.input_changed.emit()
 
-    def delete_pt_px(self, index):
+    def delete_pt_px(self, index: int):
         """Delete axis point in pixel coordinates 
-
-        index: int
         """
-        self.pts_px[index] = None
-        self.view_objs[index] = None
+        self.pts_px = np.delete(self.pts_px, index, axis=0)
+        # Trigger an update of the view
+        self.redraw_pts_px.emit()
+        # Update of the model results plus view update of results
         self.input_changed.emit()
-
-
