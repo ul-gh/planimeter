@@ -118,8 +118,8 @@ class DataModel(QObject):
         if not self.axes_setup_is_complete():
             return
         # 2D arrays, x and y pixel coordinates are in rows
-        x_ax_px = np.array(self.x_ax.pts_px)
-        y_ax_px = np.array(self.y_ax.pts_px)
+        x_ax_px = self.x_ax.pts_px
+        y_ax_px = self.y_ax.pts_px
         # For logarithmic axes, its values are linearised.
         x_ax_data = (np.log(self.x_ax.pts_data) / np.log(self.x_ax.log_base)
                      if self.x_ax.log_scale
