@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 from functools import partial
 
+from numpy import isclose
+
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 from PyQt5.QtWidgets import (
@@ -118,6 +120,9 @@ class InputWidget(QWidget):
         hbox.addWidget(self.btn_default)
         self.setLayout(hbox)
 
+        ########## Initialise view from model
+        self.update_axes_view()
+
 
     ### Slots definition ###
     @pyqtSlot()
@@ -132,13 +137,12 @@ class InputWidget(QWidget):
         self.xendw.setText("" if x1 is None else f"{x1:{num_format}}")
         self.ystartw.setText("" if y0 is None else f"{y0:{num_format}}")
         self.yendw.setText("" if y1 is None else f"{y1:{num_format}}")
-        # Background set to green when model has valid data
-        style = "" if None in x_ax.pts_data else (
-                "QLineEdit { background-color: Palegreen; }")
-        self.group_x.setStyleSheet(style)
-        style = "" if None in y_ax.pts_data else (
-                "QLineEdit { background-color: Palegreen; }")
-        self.group_y.setStyleSheet(style)
+        invalid_x = x_ax.log_scale and isclose(
+            x_ax.pts_data, 0.0, atol=x_ax.atol).any()
+        invalid_y = y_ax.log_scale and isclose(
+            y_ax.pts_data, 0.0, atol=y_ax.atol).any()
+        self.set_green_x_ax(not invalid_x and None not in x_ax.pts_data)
+        self.set_green_y_ax(not invalid_y and None not in y_ax.pts_data)
         # Update log/lin radio buttons.
         self.btn_lin_x.setChecked(not x_ax.log_scale)
         self.btn_log_x.setChecked(x_ax.log_scale)
@@ -147,6 +151,18 @@ class InputWidget(QWidget):
         # Store config button
         self.btn_store_config.setChecked(self.model.store_ax_conf)
 
+
+    @pyqtSlot(bool)
+    def set_green_x_ax(self, state):
+        # Background set to green when model has valid data
+        style = "QLineEdit { background-color: Palegreen; }" if state else ""
+        self.group_x.setStyleSheet(style)
+
+    @pyqtSlot(bool)
+    def set_green_y_ax(self, state):
+        # Background set to green when model has valid data
+        style = "QLineEdit { background-color: Palegreen; }" if state else ""
+        self.group_y.setStyleSheet(style)
 
     @pyqtSlot(bool)
     def set_green_btn_pick_x(self, state):

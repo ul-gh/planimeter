@@ -4,6 +4,9 @@ import os
 import sys
 import pickle
 
+import numpy as np
+from numpy import NaN, isnan
+
 from PyQt5.QtCore import Qt, QDir, QSize, pyqtSlot
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
         # Store axis configuration if requested
         if self.cw.model.store_ax_conf:
             print("Storing axis configuration to disk..")
+            self.conf.model_conf.store_ax_conf = True
             # Getting plot configuration from Digitizer widget:
             self.conf.x_ax_state = get_qobj_base_state(self.cw.model.x_ax)
             self.conf.y_ax_state = get_qobj_base_state(self.cw.model.y_ax)

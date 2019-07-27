@@ -52,6 +52,8 @@ class MplWidget(QWidget):
         self.curr_trace_no = 0
         # This stores the pyplot.Lines2D object when a plot item was picked
         self.picked_obj = None
+        # Index of the picked point inside the view object
+        self.picked_obj_pt_index = 0
 
         ########## Access to the data model
         self.model = model
@@ -135,8 +137,9 @@ class MplWidget(QWidget):
             # If trace points have already been selected, ask whether to
             # delete them first before adding new points.
             curr_trace = self.model.traces[trace_no]
-            if len(curr_trace.pts_px) > 0 and self.confirm_delete():
-                curr_trace.pts_px = []
+            if curr_trace.pts_px.shape[0] > 0 and self.confirm_delete():
+                # Clears the data objects of curr_trace
+                curr_trace.init_data()
                 curr_trace.redraw_pts_px.emit()
                 curr_trace.input_changed.emit()
             # Enter or stay in add trace points mode
@@ -170,14 +173,15 @@ class MplWidget(QWidget):
         This also registers the view objects back into the model.
         """
         model = self.model
-        # X and Y axis:
+        ########## X and Y axis:
         for ax in model.x_ax, model.y_ax:
             if ax.pts_view_obj is not None:
                 ax.pts_view_obj.set_data(*ax.pts_px.T)
             else:
                 ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
-        # Origin:
-        if model.origin_px is None:
+
+        ########## Origin:
+        if isnan(model.origin_px).any():
             if model.origin_view_obj is not None:
                 model.origin_view_obj.remove()
                 model.origin_view_obj = None
@@ -195,22 +199,7 @@ class MplWidget(QWidget):
                 else:
                     model.origin_view_obj.set_data(*model.origin_px)
 
-        # If axes setup is complete, emit signals etc.
-        if not isnan(model.x_ax.pts_px).any():
-            # Two X-axis points complete. Reset Operating mode.
-            self.valid_x_axis_setup.emit(True)
-            print("X axis points complete")
-            self.click_mode = MODES.DEFAULT
-            self.mode_sw_default.emit()
-
-        if not isnan(model.y_ax.pts_px).any():
-            # Two Y-axis points complete. Reset Operating mode.
-            self.valid_y_axis_setup.emit(True)
-            print("Y axis points complete")
-            self.click_mode = MODES.DEFAULT
-            self.mode_sw_default.emit()
-
-        # Anyways, after updating axes point markers, redraw plot canvas:
+        ##### Anyways, after updating axes point markers, redraw plot canvas:
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
         self.canvas_qt.draw_idle()
@@ -229,7 +218,7 @@ class MplWidget(QWidget):
         for tr in traces:
             ########## Update raw pixel points
             if tr.pts_view_obj is not None:
-                tr.pts_view_obj.set_data(*tr.pts_px.T, **tr.pts_fmt)
+                tr.pts_view_obj.set_data(*tr.pts_px.T)
             else:
                 tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
         # Anyways, after updating point markers, redraw plot canvas:
@@ -275,10 +264,25 @@ class MplWidget(QWidget):
             return
 
         if self.click_mode == MODES.SETUP_X_AXIS:
+            # Add point to the model. Emits error signal for invalid data
             model.x_ax.add_pt_px(xydata)
+            # If axes setup is complete, emit signals etc.
+            if not isnan(model.x_ax.pts_px).any():
+                # Two X-axis points complete. Reset Operating mode.
+                self.valid_x_axis_setup.emit(True)
+                print("X axis points complete")
+                self.click_mode = MODES.DEFAULT
+                self.mode_sw_default.emit()
 
         if self.click_mode == MODES.SETUP_Y_AXIS:
+            # Add point to the model. Emits error signal for invalid data
             model.y_ax.add_pt_px(xydata)
+            if not isnan(model.y_ax.pts_px).any():
+                # Two Y-axis points complete. Reset Operating mode.
+                self.valid_y_axis_setup.emit(True)
+                print("Y axis points complete")
+                self.click_mode = MODES.DEFAULT
+                self.mode_sw_default.emit()
 
         if self.click_mode == MODES.ADD_TRACE_PTS:
             if not model.axes_setup_is_complete():
@@ -286,25 +290,26 @@ class MplWidget(QWidget):
                 self.click_mode = MODES.DEFAULT
                 self.mode_sw_default.emit()
             else:
-                # Add point to the model. In case the value is invalid,
-                # emits an error message
+                # Add point to the model. Emits error signal for invalid data
                 tr = model.traces[self.curr_trace_no]
                 tr.add_pt_px(xydata)
 
     def on_pick(self, event):
-        pass
+        self.picked_obj = event.artist
+        self.picked_obj_pt_index = event.ind
 
     def on_button_release(self, event):
         self.picked_obj = None
+        #self.model.
 
     def on_motion_notify(self, event):
-        if self.picked_artist is None:
+        picked_obj = self.picked_obj
+        if picked_obj is None:
             return
-        xdata, ydata = picked_artist.get_data()
-        xdata[ind] = e.xdata
-        ydata[ind] = e.ydata
-        picked_artist.set_data(xdata, ydata)
-        fig.canvas.draw_idle()
+        xydata = picked_obj.get_xydata()
+        xydata[self.picked_obj_pt_index] = (event.xdata, event.ydata)
+        picked_obj.set_data(*xydata.T)
+        self.canvas_qt.draw_idle()
 
 
     def confirm_delete(self):

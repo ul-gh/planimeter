@@ -3,7 +3,7 @@
 from functools import partial
 
 import numpy as np
-from numpy import NaN, isnan
+from numpy import NaN, isnan, isclose
 from scipy.interpolate import interp1d
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
@@ -53,7 +53,7 @@ class DataModel(QObject):
         ########## Data Model Composition
         self.x_ax = Axis(self, conf.x_ax_conf)
         self.y_ax = Axis(self, conf.y_ax_conf)
-        self.origin_px = None # Optional[np.array]
+        self.origin_px = np.full(2, NaN)
         # Matplotlib format code
         self.origin_fmt = conf.model_conf.origin_fmt
         self.origin_view_obj = None
@@ -68,7 +68,7 @@ class DataModel(QObject):
         # Absolute tolerance for testing if values are close to zero
         self.atol = conf.model_conf.atol
         # Store axes configuration persistently on disk when set
-        self.store_ax_conf = False
+        self.store_ax_conf = conf.model_conf.store_ax_conf
 
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
@@ -87,13 +87,18 @@ class DataModel(QObject):
         for i, tr in enumerate(self.traces):
             tr.input_changed.connect(partial(self.calculate_outputs, i))
             # Re-emit with trace number index
-            tr.redraw_pts_px.connect(partial(self.redraw_tr_pts_px[int], i))
+            tr.redraw_pts_px.connect(
+                partial(self.redraw_tr_pts_px[int].emit, i))
             # The errors are also re-emitted.
             tr.value_error.connect(self.value_error)
         # When affine-linear coordinate transformation is defined or changed by
         # configuring the axes, trigger an update of all plot traces in case
         # trace data is already available
         self.affine_transformation_defined.connect(self.calculate_outputs)
+
+        ########## Initialise model outputs if axes are configured
+        if self.axes_setup_is_complete():
+            self._calculate_coordinate_transformation()
 
     ########## Internals
     @pyqtSlot()
@@ -197,9 +202,9 @@ class DataModel(QObject):
     def _interpolate_cubic_splines(self, trace) -> None:
         """Acts on linear coordinates.
         Needs at least four data points for interpolation."""
+        pts = trace.pts_lin
         if pts.shape[0] < 4:
             return
-        pts = trace.pts_lin
         # Scipy interpolate
         f_interp = interp1d(*pts.T, kind="cubic")
         # Generate finer grid
@@ -226,10 +231,21 @@ class DataModel(QObject):
 
     ########## Public methods
     def axes_setup_is_complete(self) -> bool:
-        """Returns True if axes configuration is all complete"""
-        hasnone = (None in self.x_ax.pts_data or None in self.y_ax.pts_data
-                   or None in self.x_ax.pts_px or None in self.y_ax.pts_px)
-        return not hasnone
+        """Returns True if axes configuration is all complete and valid
+        """
+        x_ax = self.x_ax
+        y_ax = self.y_ax
+        if None in x_ax.pts_data or None in y_ax.pts_data:
+            return False
+        if isnan((x_ax.pts_px, y_ax.pts_px)).any():
+            return False
+        invalid_x = x_ax.log_scale and isclose(
+            x_ax.pts_data, 0.0, atol=x_ax.atol).any()
+        invalid_y = y_ax.log_scale and isclose(
+            y_ax.pts_data, 0.0, atol=y_ax.atol).any()
+        if invalid_x or invalid_y:
+            return False
+        return True
 
     def get_pts_lin_px_coords(self, trace) -> np.ndarray:
         """Returns graph mouse selected points in linearised pixel data
@@ -398,6 +414,8 @@ class Trace(QObject):
         self.pts_i_fmt = {"color": color}
         # Number of X-axis interpolation points for export and display
         self.n_pts_interpolation = tr_conf.n_pts_interpolation
+        # Data containers initial state, see below
+        self.init_data()
 
         ########## Associated view objects
         # For raw pts
@@ -405,10 +423,11 @@ class Trace(QObject):
         # For pts_i curve
         self.pts_i_view_obj = None
 
-        ########## Plot Data
-        self.init_data()
 
     def init_data(self):
+        # This is also called to clear existing traces
+        ########## Plot Data
+        # Data containers are np.ndarrays and initialised with zero length
         # pts_px is array of image pixel coordinates, x and y in rows
         self.pts_px = np.empty((0, 2))
         # pts_lin is array of x,y-tuples of linear or linearised
@@ -490,37 +509,41 @@ class Axis(QObject):
 
     @pyqtSlot(float)
     def set_ax_start(self, value):
-        if self.log_scale and np.isclose(value, 0.0, atol=self.atol):
+        if self.log_scale and isclose(value, 0.0, atol=self.atol):
             self.value_error.emit("X axis values must not be zero for log axes")
-            return
-        if self.pts_data[1] and (
-                np.isclose(value, self.pts_data[1], atol=self.atol)):
+        elif self.pts_data[1] and (
+                isclose(value, self.pts_data[1], atol=self.atol)):
             self.value_error.emit("X axis values must be numerically different")
-            return
-        self.pts_data[0] = value
+        else:
+            self.pts_data[0] = value
+        # Updates input widget
+        self.config_changed.emit()
+        # Updates outputs
         self.input_changed.emit()
 
     @pyqtSlot(float)
     def set_ax_end(self, value):
-        if self.log_scale and np.isclose(value, 0.0, atol=self.atol):
+        if self.log_scale and isclose(value, 0.0, atol=self.atol):
             self.value_error.emit("X axis values must not be zero for log axes")
-            return
-        if self.pts_data[0] and (
-                np.isclose(value, self.pts_data[0], atol=self.atol)):
+        elif self.pts_data[0] and (
+                isclose(value, self.pts_data[0], atol=self.atol)):
             self.value_error.emit("X axis values must be numerically different")
-            return
-        self.pts_data[1] = value
+        else:
+            self.pts_data[1] = value
+        self.config_changed.emit()
         self.input_changed.emit()
 
     @pyqtSlot(bool)
     def set_log_scale(self, state):
+        log_scale = bool(state)
         # Prevent setting logarithmic scale when axes values contain zero
-        if state and np.isclose(self.pts_data, 0.0, atol=self.atol).any():
-            self.log_scale = False
-            self.input_changed.emit()
+        if log_scale and isclose(self.pts_data, 0.0, atol=self.atol).any():
+            log_scale = False
             self.value_error.emit("X axis values must not be zero for log axes")
-            return
-        self.log_scale = bool(state)
+        self.log_scale = log_scale
+        # Updates input widget
+        self.config_changed.emit()
+        # Updates outputs
         self.input_changed.emit()
 
     def add_pt_px(self, xydata):
@@ -551,7 +574,7 @@ class Axis(QObject):
             # Check if input point is too close to other point, emit
             # error message and return if this is the case
             pts_distance = np.linalg.norm(pts_px[pt_index-1] - xydata)
-            if np.isclose(pts_distance, 0.0, atol=self.atol):
+            if isclose(pts_distance, 0.0, atol=self.atol):
                 self.value_error.emit(
                     "X axis section must not be zero length")
                 return
@@ -573,7 +596,7 @@ class Axis(QObject):
         other_pt = self.pts_px[index-1]
         if None not in other_pt:
             pts_distance = np.linalg.norm(other_pt - xydata)
-            if np.isclose(pts_distance, 0.0, atol=self.atol):
+            if isclose(pts_distance, 0.0, atol=self.atol):
                 self.value_error.emit("X axis section must not be zero length")
                 return
         # Validity check passed or skipped
