@@ -36,6 +36,7 @@ class Digitizer(QWidget):
    
     def __init__(self, parent, conf):
         super().__init__(parent)
+        self.conf = conf
         # System clipboard access
         self.clipboard = QApplication.instance().clipboard()
 
@@ -133,7 +134,7 @@ class Digitizer(QWidget):
         #self.clipboard.dataChanged.connect(self.clipboardChanged)
 
 
-    def array2html(self, array):
+    def array2html(self, array, decimal_chr):
         """Make a HTML table with two columns from 2D numpy array"""
         def row2html(columns):
             r = '<tr>'
@@ -148,9 +149,14 @@ class Digitizer(QWidget):
           '<meta name="generator" content="Plot Workbench Export"/>'
           '</head><body><table>'
           )
-        for row in array:
-            header += row2html(row)
-        return header + '</table></body></html>'
+        
+        footer = '</table></body></html>'
+        s = ""
+        for row in array.tolist():
+            s += row2html(row)
+        if decimal_chr != ".":
+            s = s.replace(".", decimal_chr)
+        return header + s + footer
 
     @pyqtSlot()
     def clipboardChanged(self):
@@ -165,8 +171,16 @@ class Digitizer(QWidget):
         self.clipboard.setImage(QImage.fromData(buf.getvalue()))
         buf.close()
 
-    def put_clipboard(self, trace):
+    @pyqtSlot()
+    def put_clipboard(self):
+        trace = self.model.traces[self.mplw.curr_trace_no]
         pts_i = trace.pts_i
+        if self.conf.app_conf.decimal_chr.lower() == "system":
+            decimal_chr = self.locale().decimalPoint()
+        else:
+            decimal_chr = self.conf.app_conf.decimal_chr
+        print("Putting CSV and HTML table data into clipboard!")
+        print(f'==> Decimal point character used is: "{decimal_chr}" <==')
         #datastring = np.array2string(pts_i, separator="\t")
         #strio = io.StringIO()
         #np.savetxt(strio, pts_i, delimiter="\t", fmt="%.6e")
@@ -175,7 +189,7 @@ class Digitizer(QWidget):
         #databytes = bytes(datastring, encoding="utf-8")
         qmd = QMimeData()
         #qmd.setData("Csv", databytes)
-        qmd.setHtml(self.array2html(pts_i))
+        qmd.setHtml(self.array2html(pts_i, decimal_chr))
         self.clipboard.setMimeData(qmd)
         #self.clipboard.setText(datastring)
 

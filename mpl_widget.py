@@ -91,6 +91,10 @@ class MplWidget(QWidget):
         #self.display_image("tmp/cossnew.png")
         #self.display_image("tmp/i_d.png")
 
+        ########## Restore model view
+        self.using_model_redraw_ax_pts_px()
+        self.using_model_redraw_tr_pts_px()
+
     
     @pyqtSlot()
     def toggle_setup_x_axis(self):

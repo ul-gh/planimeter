@@ -14,6 +14,8 @@ class APPLICATION():
 
     # Python string format code for GUI number formatting
     num_format = "G"
+    # Decimal point character. Use "system" for auto-detect
+    decimal_chr = "system"
 
 
 class DATA_MODEL():
@@ -37,7 +39,8 @@ class TRACE():
     # Default number of X axis points for interpolation and data export
     n_pts_interpolation = 100
     # Trace raw points format, same for all traces
-    pts_fmt = {"picker": 5.0, "marker": "x", "markersize": 10.0}
+    pts_fmt = {"picker": 5.0, "linestyle": ":",
+               "marker": "x", "markersize": 10.0}
 
 class X_AXIS():
     """Settings for X-Axis

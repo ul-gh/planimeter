@@ -612,3 +612,15 @@ class Axis(QObject):
         self.redraw_pts_px.emit()
         # Update of the model results plus view update of results
         self.input_changed.emit()
+
+    def get_state(self):
+        """Returns the axis configuration attributes as a dictionary
+        Used for persistent storage.
+        """
+        state = vars(self).copy()
+        # The view object belongs to the view component and cannot be restored
+        # into a new context.
+        del state["pts_view_obj"]
+        return state
+
+

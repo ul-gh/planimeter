@@ -54,6 +54,43 @@ class RuntimeConfig():
             print("Error saving config file: ", e)
 
 
+class MainToolbar(NavigationToolbar2QT):
+    def __init__(self, canvas, parent, coordinates=True):
+        super().__init__(canvas, parent, coordinates)
+        for act in self.actions():
+            # We want to insert our buttons before the external matplotlib
+            # API buttons where the "Home" is the leftmost
+            if act.text() == "Home":
+                api_first_action = act
+            # The matplotlib save button only saves a screenshot thus it should
+            # be appropriately renamed
+            if act.text() == "Save":
+                act.setText("Screenshot")
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        icon_open = QIcon.fromTheme(
+            "document-open",
+            self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        icon_export = QIcon.fromTheme(
+            "document-save",
+            self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        icon_send = QIcon.fromTheme(
+            "document-send",
+            self.style().standardIcon(QStyle.SP_ComputerIcon))
+        self.act_put_clipboard = QAction(
+            icon_send, "Put to Clipboard", self, iconText="Put Into\nClipboard")
+        self.act_export_xlsx = QAction(
+            icon_export, "Export data as XLSX", self, iconText="Export XLSX")
+        self.act_export_csv = QAction(
+            icon_export, "Export data as CSV", self, iconText="Export CSV")
+        self.act_open = QAction(
+            icon_open, "Open an image file", self, iconText="Open File")
+        # Separator before first external API buttons
+        sep = self.insertSeparator(api_first_action)
+        # Inserting new buttons
+        self.insertActions(sep, [self.act_open, self.act_export_csv,
+                                 self.act_export_xlsx, self.act_put_clipboard])
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -73,25 +110,29 @@ class MainWindow(QMainWindow):
         self.cw = Digitizer(self, conf)
         self.setCentralWidget(self.cw)
 
-        # Matplotlib toolbar, we are now adding more buttons to it
-        self.main_tb = NavigationToolbar2QT(self.cw.mplw.canvas_qt, self)
-        self.main_tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        icon_open = QIcon.fromTheme(
-            "document-open",
-            self.style().standardIcon(QStyle.SP_DialogOpenButton))
-        act_open = QAction(
-            icon_open, "Open an image file", self, iconText="Open File")
-        self.main_tb.addAction(act_open)
+        ########## Main window toolbar
+        self.main_tb = MainToolbar(self.cw.mplw.canvas_qt, self)
         self.addToolBar(self.main_tb)
-        # Open image file dialog
-        self.open_image_dialog = QFileDialog(
+
+        ########## Custom Dialogs
+        self.dlg_open_image = QFileDialog(
             self, "Open Source Image", self.wdir, "Images (*.png *.jpg *.jpeg)")
+        self.dlg_export_csv = QFileDialog(
+            self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
+        self.dlg_export_xlsx = QFileDialog(
+            self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
 
         ########## Connect main window signals
-        # Central Widget has its own signals; these are main window specific
-        act_open.triggered.connect(self.open_image_dialog.open)
-        self.open_image_dialog.fileSelected.connect(self.cw.load_image)
-        self.open_image_dialog.directoryEntered.connect(self.set_wdir)
+        # Main toolbar signals
+        self.main_tb.act_open.triggered.connect(self.dlg_open_image.open)
+        self.main_tb.act_export_csv.triggered.connect(self.dlg_export_csv.open)
+        self.main_tb.act_export_xlsx.triggered.connect(
+            self.dlg_export_xlsx.open)
+        self.main_tb.act_put_clipboard.triggered.connect(self.cw.put_clipboard)
+
+        # Dialog box signals
+        self.dlg_open_image.fileSelected.connect(self.cw.load_image)
+        self.dlg_open_image.directoryEntered.connect(self.set_wdir)
 
     def closeEvent(self, event):
         """closeEvent() inherited from QMainWindow, reimplemented here.
@@ -102,8 +143,8 @@ class MainWindow(QMainWindow):
             print("Storing axis configuration to disk..")
             self.conf.model_conf.store_ax_conf = True
             # Getting plot configuration from Digitizer widget:
-            self.conf.x_ax_state = get_qobj_base_state(self.cw.model.x_ax)
-            self.conf.y_ax_state = get_qobj_base_state(self.cw.model.y_ax)
+            self.conf.x_ax_state = self.cw.model.x_ax.get_state()
+            self.conf.y_ax_state = self.cw.model.y_ax.get_state()
         else:
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None
