@@ -296,28 +296,6 @@ class DataModel(QObject):
         self.store_ax_conf = state
 
 
-class ViewRegisterModel(DataModel):
-    """Subclass ViewRegisterModel of DataModel
-    
-    This adds to the data model a mapping of individual objects of the
-    graphical view presentation to the associated data model objects.
-    
-    This is used to retrieve and manipulate the data model items
-    that belong to the graphic objects.
-    
-    For the mapping, a dictionary is used for which most python objects
-    as are valid indexing keys, e.g. pyplot.Line2D objects.
-
-    Also implemented here are the respective access functions for
-    registering the view objects and for updating the data model using
-    view object data.
-    """
-    __doc__ += f"\n\nFrom inherited class:\n\n{DataModel.__doc__}"
-
-    def __init__(self, parent, conf):
-        super().__init__(parent, conf)
-        # This dict does the mapping of the view objects to the model
-        self.view_model_map = {}
 
     def using_view_add_x_ax_pt_px(self, view_obj):
         """Register a view object in the view-to-model map and in the

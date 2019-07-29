@@ -60,6 +60,11 @@ class MplWidget(QWidget):
         ########## Access to the data model
         self.model = model
 
+        ########## View-Model-Map
+        # Mapping of individual view objects (lines, points) to the
+        # associated data model components. Dict keys are pyplot.Line2D objects.
+        self.view_model_map = {}
+
         ########## Qt widget setup
         self.setMinimumHeight(100)
         vbox = QVBoxLayout(self)
@@ -88,12 +93,7 @@ class MplWidget(QWidget):
         self.canvas_qt.mpl_connect("motion_notify_event", self.on_motion_notify)
         self.canvas_qt.mpl_connect("pick_event", self.on_pick)
 
-        self.canvas_qt.draw_idle()
-        # FIXME: testing only:
-        #self.display_image("tmp/cossnew.png")
-        #self.display_image("tmp/i_d.png")
-
-        ########## Restore model view
+        ########## Initial view update
         self.using_model_redraw_ax_pts_px()
         self.using_model_redraw_tr_pts_px()
 
@@ -105,8 +105,6 @@ class MplWidget(QWidget):
             self.click_mode = MODES.SETUP_X_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_x_axis.emit()
-#            # Set pick index to zero to pick first of two points
-#            self.pt_index = 0
             print("Pick two X axis section points!")
         else:
             # When already in SETUP_X_AXIS mode, this switches back to default
@@ -120,8 +118,6 @@ class MplWidget(QWidget):
             self.click_mode = MODES.SETUP_Y_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_y_axis.emit()
-#            # Set pick index to zero to pick first of two points
-#            self.pt_index = 0
             print("Pick two Y axis section points!")
         else:
             # When already in SETUP_Y_AXIS mode, this switches back to default
@@ -155,7 +151,6 @@ class MplWidget(QWidget):
             print(f"Pick trace {trace_no + 1} points!")
 
 
-
     @pyqtSlot(str)
     def load_image(self, filename):
         """Load source/input image for digitizing"""
@@ -172,6 +167,7 @@ class MplWidget(QWidget):
             origin="lower", zorder=0,)
         self.canvas_qt.draw_idle()
 
+
     @pyqtSlot()
     def using_model_redraw_ax_pts_px(self):
         """Updates axes model features displayed in plot widget,
@@ -186,6 +182,7 @@ class MplWidget(QWidget):
                 ax.pts_view_obj.set_data(*ax.pts_px.T)
             else:
                 ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
+                self.view_model_map[ax.pts_view_obj] = ax
 
         ########## Origin:
         if isnan(model.origin_px).any():
@@ -198,11 +195,12 @@ class MplWidget(QWidget):
                     and (model.origin_px > 0).all()
                     ):
                 if model.origin_view_obj is None:
-                    artist, = self.mpl_ax.plot(
+                    view_obj, = self.mpl_ax.plot(
                         *model.origin_px, **model.origin_fmt)
-                    model.origin_view_obj = artist
-                    # The origin is not registered into the data model as this
-                    # is a calculated property, not input data.
+                    # The origin point is calculated and not supposed to be
+                    # subjected to drag-and-drop etc.: registering it as None
+                    self.view_model_map[view_obj] = None
+                    model.origin_view_obj = view_obj
                 else:
                     model.origin_view_obj.set_data(*model.origin_px)
 
@@ -228,6 +226,7 @@ class MplWidget(QWidget):
                 tr.pts_view_obj.set_data(*tr.pts_px.T)
             else:
                 tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
+                self.view_model_map[tr.pts_view_obj] = tr
         # Anyways, after updating point markers, redraw plot canvas:
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
@@ -247,14 +246,17 @@ class MplWidget(QWidget):
             # Draw or update data on an interpolated plot line.
             # Backtransform trace to pixel data coordinate system
             pts_i_px = model.get_pts_lin_i_px_coords(tr)
-            artist = tr.pts_i_view_obj
-            if artist is None:
+            view_obj = tr.pts_i_view_obj
+            if view_obj is None:
                 # Draw trace on matplotlib widget
-                artist, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
-                tr.pts_i_view_obj = artist
+                view_obj, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
+                # The origin point is calculated and not supposed to be
+                # subjected to drag-and-drop etc.: registering it as None
+                self.view_model_map[view_obj] = None
+                tr.pts_i_view_obj = view_obj
             else:
                 # Trace handle for pts_lin_i exists. Update data.
-                artist.set_data(*pts_i_px.T)
+                view_obj.set_data(*pts_i_px.T)
         ########## After updating all traces and markers, redraw plot canvas
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
@@ -304,6 +306,7 @@ class MplWidget(QWidget):
     def on_pick(self, event):
         self.picked_obj = event.artist
         self.picked_obj_pt_index = event.ind
+        self.picked_obj_modeldata = self.view_model_map[self.picked_obj]
         # Setting up bit blitting for smooth drag and drop operation
         self.picked_obj.set_visible(False)
         self.canvas_qt.draw()
@@ -312,17 +315,26 @@ class MplWidget(QWidget):
         self.canvas_qt.draw_idle()
 
     def on_button_release(self, event):
+        picked_obj = self.picked_obj
+        if picked_obj is None:
+            return
+        index = self.picked_obj_pt_index
+        xydata = picked_obj.get_xydata()
+        self.picked_obj_modeldata.pts_px[index] = xydata
         self.picked_obj = None
-        self.canvas_qt.draw_idle()
-        #self.model.
+        self.picked_obj_modeldata.redraw_pts_px.emit()
+        self.picked_obj_modeldata.input_changed.emit()
 
     def on_motion_notify(self, event):
         picked_obj = self.picked_obj
         if picked_obj is None:
             return
+        index = self.picked_obj_pt_index
         xydata = picked_obj.get_xydata()
         # Implicit cast to np.ndarray
         xydata[self.picked_obj_pt_index] = (event.xdata, event.ydata)
+        # Writing changed pts_px back into the model
+        self.picked_obj_modeldata.pts_px[index] = xydata
         picked_obj.set_data(*xydata.T)
         # Blitting operation
         self.canvas_qt.restore_region(self.background)
@@ -330,6 +342,8 @@ class MplWidget(QWidget):
         self.mpl_ax.draw_artist(picked_obj)
         # Blitting final step does seem to also update the Qt widget.
         self.canvas_qt.blit(self.mpl_ax.bbox)
+        self.picked_obj_modeldata.redraw_pts_px.emit()
+        self.picked_obj_modeldata.input_changed.emit()
 
 
     def confirm_delete(self):
