@@ -176,8 +176,11 @@ if __name__ == "__main__":
     ipython_pyqt_boilerplate(app)
 
     # Set up some shortcuts for command line interactive use.
-    mpl_ax = mainw.cw.mplw.mpl_ax
+    ax = mainw.cw.mplw.mpl_ax
+    fig = mainw.cw.mplw.fig
+    cv = mainw.cw.mplw.canvas_qt
     redraw = mainw.cw.mplw.canvas_qt.draw_idle
+
     model = mainw.cw.model
     traces = model.traces
     tr1, tr2, tr3 = model.traces[0:3]

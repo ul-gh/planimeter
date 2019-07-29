@@ -44,7 +44,7 @@ class MplWidget(QWidget):
     valid_x_axis_setup = pyqtSignal(bool)
     valid_y_axis_setup = pyqtSignal(bool)
 
-    def __init__(self, parent, model):
+    def __init__(self, parent, model, conf):
         super().__init__(parent)
         ########## Operation state
         # What happens when the plot canvas is clicked..
@@ -54,6 +54,8 @@ class MplWidget(QWidget):
         self.picked_obj = None
         # Index of the picked point inside the view object
         self.picked_obj_pt_index = 0
+        # App configuration
+        self.conf = conf
 
         ########## Access to the data model
         self.model = model
@@ -166,7 +168,8 @@ class MplWidget(QWidget):
             self.show_error(e)
         #self.resize(image.shape[0]+200, image.shape[1]+200)
         self.img_handle = self.mpl_ax.imshow(
-            image[-1::-1], interpolation="lanczos", origin="lower", zorder=0)
+            image[-1::-1], interpolation=self.conf.app_conf.img_interpolation,
+            origin="lower", zorder=0,)
         self.canvas_qt.draw_idle()
 
     @pyqtSlot()
@@ -301,9 +304,16 @@ class MplWidget(QWidget):
     def on_pick(self, event):
         self.picked_obj = event.artist
         self.picked_obj_pt_index = event.ind
+        # Setting up bit blitting for smooth drag and drop operation
+        self.picked_obj.set_visible(False)
+        self.canvas_qt.draw()
+        self.background = self.canvas_qt.copy_from_bbox(self.mpl_ax.bbox)
+        self.picked_obj.set_visible(True)
+        self.canvas_qt.draw_idle()
 
     def on_button_release(self, event):
         self.picked_obj = None
+        self.canvas_qt.draw_idle()
         #self.model.
 
     def on_motion_notify(self, event):
@@ -311,9 +321,15 @@ class MplWidget(QWidget):
         if picked_obj is None:
             return
         xydata = picked_obj.get_xydata()
+        # Implicit cast to np.ndarray
         xydata[self.picked_obj_pt_index] = (event.xdata, event.ydata)
         picked_obj.set_data(*xydata.T)
-        self.canvas_qt.draw_idle()
+        # Blitting operation
+        self.canvas_qt.restore_region(self.background)
+        # Redraws object using cached Agg renderer
+        self.mpl_ax.draw_artist(picked_obj)
+        # Blitting final step does seem to also update the Qt widget.
+        self.canvas_qt.blit(self.mpl_ax.bbox)
 
 
     def confirm_delete(self):

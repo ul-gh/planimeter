@@ -57,7 +57,7 @@ class Digitizer(QWidget):
         inputw = self.inputw
         
         # Matplotlib widget
-        self.mplw = MplWidget(self, model)
+        self.mplw = MplWidget(self, model, conf)
         mplw = self.mplw
        
         # Layout is vertical widgets, divided by a splitter
