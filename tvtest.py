@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Wed Jun 26 18:29:25 2019
-
-@author: lukas01
 """
 from PyQt5.QtGui import QKeySequence
 import PyQt5.QtWidgets as gui

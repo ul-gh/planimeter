@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Plot Workbench Input Widget
+
+License: GPL version 3
+2019-07-29 Ulrich Lukas
+"""
 from functools import partial
 
 from numpy import isclose

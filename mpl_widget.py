@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Plot Workbench MPL View Widget
+
+License: GPL version 3
+"""
 from collections import namedtuple
 from numpy import NaN, isnan
 
@@ -10,11 +14,11 @@ import matplotlib.figure
 import matplotlib.image as mpimg
 import matplotlib.backends.backend_qt5agg as mpl_backend_qt
 
-# Constants definition, representing the operation modes of the graphic widget
+# Constants definition for modal mouse interaction with the plot canvas
 ClickModes = namedtuple(
     "MODES",
-    "DEFAULT  SETUP_X_AXIS  SETUP_Y_AXIS  ADD_TRACE_PTS  DEL_TRACE_PTS")
-MODES = ClickModes(0, 1, 2, 3, 4)
+    "DEFAULT  SETUP_X_AXIS  SETUP_Y_AXIS  ADD_TRACE_PTS")
+MODES = ClickModes(0, 1, 2, 3)
 
 
 class MplWidget(QWidget):
@@ -32,6 +36,8 @@ class MplWidget(QWidget):
     can be entered which the model transforms into data space for output
     and further processing, e.g. an interpolated or fitted version is
     backplotted on the pixel canvas.
+
+    2019-07-29 Ulrich Lukas
     """
     ########## Custom Qt signals for interaction with the input widget
     # Emitted on mode switch
@@ -52,8 +58,10 @@ class MplWidget(QWidget):
         self.curr_trace_no = 0
         # This stores the pyplot.Lines2D object when a plot item was picked
         self.picked_obj = None
-        # Index of the picked point inside the view object
-        self.picked_obj_pt_index = 0
+        # Model component with view associated data for a mouse-picked object
+        self.picked_obj_model = None
+        # Index of a single picked point inside the view object
+        self.picked_obj_index = 0
         # App configuration
         self.conf = conf
 
@@ -87,6 +95,7 @@ class MplWidget(QWidget):
         vbox.addWidget(self.canvas_qt)
 
         ########## Connect non-public events and signals
+        self.canvas_qt.mpl_connect("key_press_event", self.on_key_press)
         self.canvas_qt.mpl_connect("button_press_event", self.on_button_press)
         self.canvas_qt.mpl_connect(
             "button_release_event", self.on_button_release)
@@ -184,6 +193,15 @@ class MplWidget(QWidget):
                 ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
                 self.view_model_map[ax.pts_view_obj] = ax
 
+        # When in X-axis setup mode, this should enable instant drag+drop:
+        if self.click_mode == MODES.SETUP_X_AXIS:
+            index = 0 if isnan(model.x_ax.pts_px[1]).any() else 1
+            self.pick_and_blit(model.x_ax.pts_view_obj, index)
+        # When in y-axis setup mode, this should enable instant drag+drop:
+        if self.click_mode == MODES.SETUP_Y_AXIS:
+            index = 0 if isnan(model.y_ax.pts_px[1]).any() else 1
+            self.pick_and_blit(model.y_ax.pts_view_obj, index)
+
         ########## Origin:
         if isnan(model.origin_px).any():
             if model.origin_view_obj is not None:
@@ -227,6 +245,11 @@ class MplWidget(QWidget):
             else:
                 tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
                 self.view_model_map[tr.pts_view_obj] = tr
+
+        # When in trace pts adding mode, this should enable instant drag+drop:
+        if self.click_mode == MODES.ADD_TRACE_PTS:
+            self.pick_and_blit(tr.pts_view_obj, tr.pts_px.shape[0]-1)
+
         # Anyways, after updating point markers, redraw plot canvas:
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
@@ -263,9 +286,20 @@ class MplWidget(QWidget):
         self.canvas_qt.draw_idle()
 
 
+    def on_key_press(self, event):
+        print("Event key pressed is: ", event.key)
+
+
     def on_button_press(self, event):
         ########## Add points etc.
         # event: Matplotlib event object
+        # matplotlib.backend_bases.MouseButton.RIGHT = 3
+        if event.button == 3:
+            if self.click_mode != MODES.DEFAULT:
+                print("Switching back to default mode")
+                self.click_mode = MODES.DEFAULT
+                self.mode_sw_default.emit()
+
         xydata = (event.xdata, event.ydata)
         model = self.model
         # Ignore invalid coordinates (when clicked outside of plot canvas)
@@ -274,7 +308,9 @@ class MplWidget(QWidget):
 
         if self.click_mode == MODES.SETUP_X_AXIS:
             # Add point to the model. Emits error signal for invalid data
-            model.x_ax.add_pt_px(xydata)
+            #model.x_ax.add_pt_px(xydata)
+            # FIXME: We are here
+#            self.pick_and_blit(
             # If axes setup is complete, emit signals etc.
             if not isnan(model.x_ax.pts_px).any():
                 # Two X-axis points complete. Reset Operating mode.
@@ -303,38 +339,56 @@ class MplWidget(QWidget):
                 tr = model.traces[self.curr_trace_no]
                 tr.add_pt_px(xydata)
 
-    def on_pick(self, event):
-        self.picked_obj = event.artist
-        self.picked_obj_pt_index = event.ind
-        self.picked_obj_modeldata = self.view_model_map[self.picked_obj]
-        # Setting up bit blitting for smooth drag and drop operation
-        self.picked_obj.set_visible(False)
+
+    def pick_and_blit(self, view_obj, index):
+        # Model component with view associated data for a mouse-picked object
+        # is looked up from the view-model mapping.
+        picked_obj_model = self.view_model_map[view_obj]
+        # For non-mouse-pickable view objects, a None is stored in the mapping
+        if picked_obj_model is None:
+            # Not found in mapping, view object is thus not mouse-pickable
+            return
+        # View_obj is mouse-pickable; selected view object is added to instance
+        self.picked_obj = view_obj
+        # also the associated data model component
+        self.picked_obj_model = picked_obj_model
+        # Index of a single picked point inside the view object
+        self.picked_obj_index = index
+        ##### Setting up bit blitting for smooth drag and drop operation
+        view_obj.set_visible(False)
         self.canvas_qt.draw()
         self.background = self.canvas_qt.copy_from_bbox(self.mpl_ax.bbox)
-        self.picked_obj.set_visible(True)
+        view_obj.set_visible(True)
+
+
+    def on_pick(self, event):
+        # Mouse pick event handling
+        self.pick_and_blit(event.artist, event.ind)
         self.canvas_qt.draw_idle()
 
     def on_button_release(self, event):
         picked_obj = self.picked_obj
         if picked_obj is None:
             return
-        index = self.picked_obj_pt_index
+        # Model data is updated from the view
+        index = self.picked_obj_index
         xydata = picked_obj.get_xydata()
-        self.picked_obj_modeldata.pts_px[index] = xydata
+        self.picked_obj_model.pts_px[index] = xydata[index]
+        # Restore default state
         self.picked_obj = None
-        self.picked_obj_modeldata.redraw_pts_px.emit()
-        self.picked_obj_modeldata.input_changed.emit()
+        self.picked_obj_model.redraw_pts_px.emit()
+        self.picked_obj_model.input_changed.emit()
 
     def on_motion_notify(self, event):
         picked_obj = self.picked_obj
         if picked_obj is None:
             return
-        index = self.picked_obj_pt_index
+        index = self.picked_obj_index
         xydata = picked_obj.get_xydata()
         # Implicit cast to np.ndarray
-        xydata[self.picked_obj_pt_index] = (event.xdata, event.ydata)
+        xydata[index] = (event.xdata, event.ydata)
         # Writing changed pts_px back into the model
-        self.picked_obj_modeldata.pts_px[index] = xydata
+        self.picked_obj_model.pts_px[index] = xydata[index]
         picked_obj.set_data(*xydata.T)
         # Blitting operation
         self.canvas_qt.restore_region(self.background)
@@ -342,8 +396,8 @@ class MplWidget(QWidget):
         self.mpl_ax.draw_artist(picked_obj)
         # Blitting final step does seem to also update the Qt widget.
         self.canvas_qt.blit(self.mpl_ax.bbox)
-        self.picked_obj_modeldata.redraw_pts_px.emit()
-        self.picked_obj_modeldata.input_changed.emit()
+        #self.picked_obj_model.redraw_pts_px.emit()
+        #self.picked_obj_model.input_changed.emit()
 
 
     def confirm_delete(self):

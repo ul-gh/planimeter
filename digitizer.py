@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Plot Workbench Digitizer Widget
+
+License: GPL version 3
+"""
 import io
 import numpy as np
 from functools import partial
@@ -14,7 +18,7 @@ from PyQt5.QtWidgets import (
 
 from mpl_widget import MplWidget
 from input_widget import InputWidget
-from plot_model import ViewRegisterModel
+from plot_model import DataModel
 
 
 class Digitizer(QWidget):
@@ -29,6 +33,8 @@ class Digitizer(QWidget):
     The matplotlib widget has internal state (MODE) and direct access
     to the data model which leaves only part of the controller functions
     to this module, mainly connecting the public Qt signals and slots.
+    
+    2019-07-29 Ulrich Lukas
     """
     ########## Qt signals
     # This triggers a load or reload of the digitizer source input image
@@ -41,7 +47,7 @@ class Digitizer(QWidget):
         self.clipboard = QApplication.instance().clipboard()
 
         # Plot interactive data model
-        self.model = ViewRegisterModel(self, conf)
+        self.model = DataModel(self, conf)
         model = self.model
 
         # General text or warning message

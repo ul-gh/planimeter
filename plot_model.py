@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Plot Workbench Data Model
+
+License: GPL version 3
+"""
 from functools import partial
 
 import numpy as np
@@ -32,6 +36,8 @@ class DataModel(QObject):
     this module.
 
     Individual plot traces are stored in a list of Trace type instances.
+    
+    2019-07-29 Ulrich Lukas
     """
     ########## Qt signals
     # This overloaded signal triggers a GUI update when the model has updated
@@ -294,75 +300,6 @@ class DataModel(QObject):
         when the application is closed
         """
         self.store_ax_conf = state
-
-
-
-    def using_view_add_x_ax_pt_px(self, view_obj):
-        """Register a view object in the view-to-model map and in the
-        model component, set model input data from view object
-        and trigger a model update.
-        The view objects must have a "get_xydata" attribute returning the pixel
-        coordinates as a 2D np.array.
-        """
-        self.view_model_map[view_obj] = self.x_ax
-        xydata = view_obj.get_xydata().tolist()[0]
-        # This also registers the view object in the model component and 
-        # emits the input_changed signal
-        self.x_ax.add_pt_px(xydata, view_obj)
-
-    def using_view_add_y_ax_pt_px(self, view_obj):
-        """Register a view object in the view-to-model map and in the
-        model component, set model input data from view object
-        and trigger a model update.
-        The view objects must have a "get_xydata" attribute returning the pixel
-        coordinates as a 2D np.array.
-        """
-        self.view_model_map[view_obj] = self.y_ax
-        xydata = view_obj.get_xydata().tolist()[0]
-        # This also registers the view object in the model component and 
-        # emits the input_changed signal
-        self.y_ax.add_pt_px(xydata, view_obj)
-
-    def using_view_add_trace_pt_px(self, view_obj, trace_no):
-        """Register a view object in the view-to-model map and in the
-        model component, set model input data from view object
-        and trigger a model update. Traces require an index number.
-        The view objects must have a "get_xydata" attribute returning the pixel
-        coordinates as a 2D np.array.
-        """
-        trace = self.traces[trace_no]
-        self.view_model_map[view_obj] = trace
-        xydata = view_obj.get_xydata().tolist()[0]
-        # This also registers the view object in the model component and 
-        # emits the input_changed signal
-        trace.add_pt_px(xydata, view_obj)
-
-    def using_view_update_pt_px(self, view_obj):
-        """Update the data model when an already registered view_obj
-        has changed data.
-
-        This triggers a model re-calculation.
-        
-        The view objects must have a "get_xydata" attribute returning the pixel
-        coordinates as a 2D np.array.
-
-        This is called when a point was moved in the view component
-        """
-        model_comp = self.view_model_map[view_obj]
-        index = model_comp.view_objs.index(view_obj)
-        xydata = view_obj.get_xydata().tolist()[0]
-        # This also emits the input_changed signal
-        model_comp.update_pt_px(index, xydata)
-
-    def using_view_delete_pt_px(self, view_obj):
-        """Un-register a view object, delete data from model and
-        trigger a model re-calculation.
-        """
-        model_comp = self.view_model_map.pop(view_obj)
-        index = model_comp.view_objs.index(view_obj)
-        # This also deletes the view object from the model component
-        # and emits the input_changed signal
-        model_comp.delete_pt_px(index)
 
 
 class Trace(QObject):

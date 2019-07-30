@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Plot Workbench Application
+
+License: GPL version 3
+Ulrich Lukas 2019-07-29
+"""
 import os
 import sys
 import pickle
