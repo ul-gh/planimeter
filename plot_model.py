@@ -361,7 +361,7 @@ class Trace(QObject):
 
 
     def add_pt_px(self, xydata):
-        self.pts_px = np.vstack((self.pts_px, xydata))
+        self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
         # Trigger an update of the view
         self.redraw_pts_px.emit()
         # Update of the model results plus view update of results

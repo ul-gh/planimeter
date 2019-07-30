@@ -115,7 +115,13 @@ class MplWidget(QWidget):
             self.click_mode = MODES.SETUP_X_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_x_axis.emit()
-            print("Pick two X axis section points!")
+            print("Pick X axis points!")
+            if isnan(self.model.x_ax.pts_px[1]).any():
+                # First axis point already set, select second one
+                self.pick_and_blit(self.model.x_ax, 1)
+            else:
+                # Begin with first axis point
+                self.pick_and_blit(self.model.x_ax, 0)
         else:
             # When already in SETUP_X_AXIS mode, this switches back to default
             self.click_mode = MODES.DEFAULT
@@ -128,7 +134,13 @@ class MplWidget(QWidget):
             self.click_mode = MODES.SETUP_Y_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_y_axis.emit()
-            print("Pick two Y axis section points!")
+            print("Pick Y axis points!")
+            if isnan(self.model.y_ax.pts_px[1]).any():
+                # First axis point already set, select second one
+                self.pick_and_blit(self.model.y_ax.pts_view_obj, 1)
+            else:
+                # Begin with first axis point
+                self.pick_and_blit(self.model.y_ax.pts_view_obj, 0)
         else:
             # When already in SETUP_Y_AXIS mode, this switches back to default
             self.click_mode = MODES.DEFAULT
@@ -142,6 +154,10 @@ class MplWidget(QWidget):
         # and continue selecting trace points. 
         if (    self.click_mode == MODES.ADD_TRACE_PTS
                 and trace_no == self.curr_trace_no):
+            self.click_mode = MODES.DEFAULT
+            self.mode_sw_default.emit()
+        elif not model.axes_setup_is_complete():
+            self.show_text("You must configure the axes first!")
             self.click_mode = MODES.DEFAULT
             self.mode_sw_default.emit()
         else:
@@ -159,6 +175,9 @@ class MplWidget(QWidget):
             # Qt signal reflecting the new state and trace number
             self.mode_sw_add_trace_pts.emit(trace_no)
             print(f"Pick trace {trace_no + 1} points!")
+            curr_trace.add_pt_px((NaN, NaN))
+            self.pick_and_blit(
+                curr_trace.pts_view_obj, curr_trace.pts_px.shape[0]-1)
 
 
     @pyqtSlot(str)
@@ -193,15 +212,6 @@ class MplWidget(QWidget):
             else:
                 ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
                 self.view_model_map[ax.pts_view_obj] = ax
-
-        # When in X-axis setup mode, this should enable instant drag+drop:
-        if self.click_mode == MODES.SETUP_X_AXIS:
-            index = 0 if isnan(model.x_ax.pts_px[1]).any() else 1
-            self.pick_and_blit(model.x_ax.pts_view_obj, index)
-        # When in y-axis setup mode, this should enable instant drag+drop:
-        if self.click_mode == MODES.SETUP_Y_AXIS:
-            index = 0 if isnan(model.y_ax.pts_px[1]).any() else 1
-            self.pick_and_blit(model.y_ax.pts_view_obj, index)
 
         ########## Origin:
         if isnan(model.origin_px).any():
@@ -246,10 +256,6 @@ class MplWidget(QWidget):
             else:
                 tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
                 self.view_model_map[tr.pts_view_obj] = tr
-
-        # When in trace pts adding mode, this should enable instant drag+drop:
-        if self.click_mode == MODES.ADD_TRACE_PTS:
-            self.pick_and_blit(tr.pts_view_obj, tr.pts_px.shape[0]-1)
 
         # Anyways, after updating point markers, redraw plot canvas:
         self.mpl_ax.relim()
@@ -314,12 +320,14 @@ class MplWidget(QWidget):
 
         if self.click_mode == MODES.SETUP_X_AXIS:
             # Add point to the model. Emits error signal for invalid data
-            #model.x_ax.add_pt_px(xydata)
-            # FIXME: We are here
-#            self.pick_and_blit(
-            # If axes setup is complete, emit signals etc.
-            if not isnan(model.x_ax.pts_px).any():
+            model.x_ax.add_pt_px(xydata)
+
+            if isnan(model.x_ax.pts_px[1]).any():
+                # Normal case, first pixel was just set, pick second one
+                self.pick_and_blit(model.x_ax.pts_view_obj, 1)
+            else:
                 # Two X-axis points complete. Reset Operating mode.
+                self.picked_obj = None
                 self.valid_x_axis_setup.emit(True)
                 print("X axis points complete")
                 self.click_mode = MODES.DEFAULT
@@ -328,22 +336,22 @@ class MplWidget(QWidget):
         if self.click_mode == MODES.SETUP_Y_AXIS:
             # Add point to the model. Emits error signal for invalid data
             model.y_ax.add_pt_px(xydata)
-            if not isnan(model.y_ax.pts_px).any():
+            
+            if isnan(model.y_ax.pts_px[1]).any():
+                # Normal case, first pixel was just set, pick second one
+                self.pick_and_blit(model.y_ax.pts_view_obj, 1)
+            else:
                 # Two Y-axis points complete. Reset Operating mode.
+                self.picked_obj = None
                 self.valid_y_axis_setup.emit(True)
                 print("Y axis points complete")
                 self.click_mode = MODES.DEFAULT
                 self.mode_sw_default.emit()
 
         if self.click_mode == MODES.ADD_TRACE_PTS:
-            if not model.axes_setup_is_complete():
-                self.show_text("You must configure the axes first!")
-                self.click_mode = MODES.DEFAULT
-                self.mode_sw_default.emit()
-            else:
-                # Add point to the model. Emits error signal for invalid data
-                tr = model.traces[self.curr_trace_no]
-                tr.add_pt_px(xydata)
+            # Add point to the model. Emits error signal for invalid data
+            tr = model.traces[self.curr_trace_no]
+            tr.add_pt_px(xydata)
 
 
     def pick_and_blit(self, view_obj, index):
