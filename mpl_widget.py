@@ -96,6 +96,7 @@ class MplWidget(QWidget):
 
         ########## Connect non-public events and signals
         self.canvas_qt.mpl_connect("key_press_event", self.on_key_press)
+        self.canvas_qt.mpl_connect("figure_enter_event", self.on_figure_enter)
         self.canvas_qt.mpl_connect("button_press_event", self.on_button_press)
         self.canvas_qt.mpl_connect(
             "button_release_event", self.on_button_release)
@@ -288,6 +289,11 @@ class MplWidget(QWidget):
 
     def on_key_press(self, event):
         print("Event key pressed is: ", event.key)
+        if event.key == "escape":
+            print("Switching back to default mode")
+            self.click_mode = MODES.DEFAULT
+            self.mode_sw_default.emit()
+
 
 
     def on_button_press(self, event):
@@ -398,6 +404,9 @@ class MplWidget(QWidget):
         self.canvas_qt.blit(self.mpl_ax.bbox)
         #self.picked_obj_model.redraw_pts_px.emit()
         #self.picked_obj_model.input_changed.emit()
+
+    def on_figure_enter(self, event):
+        self.canvas_qt.setFocus()
 
 
     def confirm_delete(self):
