@@ -5,6 +5,8 @@
 License: GPL version 3
 """
 from collections import namedtuple
+
+import numpy as np
 from numpy import NaN, isnan
 
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
@@ -14,12 +16,13 @@ import matplotlib.figure
 import matplotlib.image as mpimg
 import matplotlib.backends.backend_qt5agg as mpl_backend_qt
 
-# Constants definition for modal mouse interaction with the plot canvas
+# Constants definitions
 ClickModes = namedtuple(
     "MODES",
     "DEFAULT  SETUP_X_AXIS  SETUP_Y_AXIS  ADD_TRACE_PTS")
 MODES = ClickModes(0, 1, 2, 3)
 
+NAN_ROW_2D = np.full((1, 2), NaN)
 
 class MplWidget(QWidget):
     """This is the core graphic widget based on a matplotlib Qt backend.
@@ -107,6 +110,15 @@ class MplWidget(QWidget):
         self.using_model_redraw_ax_pts_px()
         self.using_model_redraw_tr_pts_px()
 
+
+    def sw_to_default(self):
+        print("Switching back to default mode")
+        if self.picked_obj is not None:
+            self.picked_obj_model.redraw_pts_px.emit()
+            self.picked_obj = None
+        self.click_mode = MODES.DEFAULT
+        self.mode_sw_default.emit()
+    
     
     @pyqtSlot()
     def toggle_setup_x_axis(self):
@@ -124,8 +136,7 @@ class MplWidget(QWidget):
                 self.pick_and_blit(self.model.x_ax, 0)
         else:
             # When already in SETUP_X_AXIS mode, this switches back to default
-            self.click_mode = MODES.DEFAULT
-            self.mode_sw_default.emit()
+            self.sw_to_default()
     
     @pyqtSlot()
     def toggle_setup_y_axis(self):
@@ -143,41 +154,38 @@ class MplWidget(QWidget):
                 self.pick_and_blit(self.model.y_ax.pts_view_obj, 0)
         else:
             # When already in SETUP_Y_AXIS mode, this switches back to default
-            self.click_mode = MODES.DEFAULT
-            self.mode_sw_default.emit()
+            self.sw_to_default()
 
     @pyqtSlot(int)
     def toggle_add_trace_pts_mode(self, trace_no):
         # When already in ADD_TRACE_PTS mode:
         # when same button was clicked, toggle back to default mode.
-        # Any other case: Set current trace according to the index number
-        # and continue selecting trace points. 
+        # Otherwise, given valid axes setup, set current trace according to
+        # the index number and continue selecting trace points. 
         if (    self.click_mode == MODES.ADD_TRACE_PTS
                 and trace_no == self.curr_trace_no):
-            self.click_mode = MODES.DEFAULT
-            self.mode_sw_default.emit()
-        elif not model.axes_setup_is_complete():
+            self.sw_to_default()
+        elif not self.model.axes_setup_is_complete():
             self.show_text("You must configure the axes first!")
-            self.click_mode = MODES.DEFAULT
-            self.mode_sw_default.emit()
+            self.sw_to_default()
         else:
             self.curr_trace_no = trace_no
             # If trace points have already been selected, ask whether to
             # delete them first before adding new points.
-            curr_trace = self.model.traces[trace_no]
-            if curr_trace.pts_px.shape[0] > 0 and self.confirm_delete():
+            tr = self.model.traces[trace_no]
+            if tr.pts_px.shape[0] > 0 and self.confirm_delete():
                 # Clears the data objects of curr_trace
-                curr_trace.init_data()
-                curr_trace.redraw_pts_px.emit()
-                curr_trace.input_changed.emit()
+                tr.init_data()
+                tr.redraw_pts_px.emit()
+                tr.input_changed.emit()
             # Enter or stay in add trace points mode
             self.click_mode = MODES.ADD_TRACE_PTS
+            pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
+            tr.pts_view_obj.set_data(*pts_px_new.T)
+            self.pick_and_blit(tr.pts_view_obj, tr.pts_px.shape[0]-1)
             # Qt signal reflecting the new state and trace number
             self.mode_sw_add_trace_pts.emit(trace_no)
             print(f"Pick trace {trace_no + 1} points!")
-            curr_trace.add_pt_px((NaN, NaN))
-            self.pick_and_blit(
-                curr_trace.pts_view_obj, curr_trace.pts_px.shape[0]-1)
 
 
     @pyqtSlot(str)
@@ -212,7 +220,6 @@ class MplWidget(QWidget):
             else:
                 ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
                 self.view_model_map[ax.pts_view_obj] = ax
-
         ########## Origin:
         if isnan(model.origin_px).any():
             if model.origin_view_obj is not None:
@@ -232,8 +239,8 @@ class MplWidget(QWidget):
                     model.origin_view_obj = view_obj
                 else:
                     model.origin_view_obj.set_data(*model.origin_px)
-
         ##### Anyways, after updating axes point markers, redraw plot canvas:
+        # Autoscale and fit axes limits in case points are outside image limits
         self.mpl_ax.relim()
         self.mpl_ax.autoscale()
         self.canvas_qt.draw_idle()
@@ -256,10 +263,7 @@ class MplWidget(QWidget):
             else:
                 tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
                 self.view_model_map[tr.pts_view_obj] = tr
-
         # Anyways, after updating point markers, redraw plot canvas:
-        self.mpl_ax.relim()
-        self.mpl_ax.autoscale()
         self.canvas_qt.draw_idle()
 
 
@@ -293,13 +297,16 @@ class MplWidget(QWidget):
         self.canvas_qt.draw_idle()
 
 
+    def on_figure_enter(self, event):
+        # Set Qt keyboard input focus to the matplotlib canvas
+        # in order to receive key press events
+        self.canvas_qt.setFocus()
+
+
     def on_key_press(self, event):
         print("Event key pressed is: ", event.key)
         if event.key == "escape":
-            print("Switching back to default mode")
-            self.click_mode = MODES.DEFAULT
-            self.mode_sw_default.emit()
-
+            self.sw_to_default()
 
 
     def on_button_press(self, event):
@@ -308,9 +315,7 @@ class MplWidget(QWidget):
         # matplotlib.backend_bases.MouseButton.RIGHT = 3
         if event.button == 3:
             if self.click_mode != MODES.DEFAULT:
-                print("Switching back to default mode")
-                self.click_mode = MODES.DEFAULT
-                self.mode_sw_default.emit()
+                self.sw_to_default()
 
         xydata = (event.xdata, event.ydata)
         model = self.model
@@ -328,10 +333,9 @@ class MplWidget(QWidget):
             else:
                 # Two X-axis points complete. Reset Operating mode.
                 self.picked_obj = None
-                self.valid_x_axis_setup.emit(True)
                 print("X axis points complete")
-                self.click_mode = MODES.DEFAULT
-                self.mode_sw_default.emit()
+                self.valid_x_axis_setup.emit(True)
+                self.sw_to_default()
 
         if self.click_mode == MODES.SETUP_Y_AXIS:
             # Add point to the model. Emits error signal for invalid data
@@ -343,15 +347,18 @@ class MplWidget(QWidget):
             else:
                 # Two Y-axis points complete. Reset Operating mode.
                 self.picked_obj = None
-                self.valid_y_axis_setup.emit(True)
                 print("Y axis points complete")
-                self.click_mode = MODES.DEFAULT
-                self.mode_sw_default.emit()
+                self.valid_y_axis_setup.emit(True)
+                self.sw_to_default()
 
         if self.click_mode == MODES.ADD_TRACE_PTS:
             # Add point to the model. Emits error signal for invalid data
             tr = model.traces[self.curr_trace_no]
             tr.add_pt_px(xydata)
+            pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
+            tr.pts_view_obj.set_data(*pts_px_new.T)
+            self.pick_and_blit(tr.pts_view_obj, pts_px_new.shape[0]-1)
+
 
 
     def pick_and_blit(self, view_obj, index):
@@ -381,17 +388,19 @@ class MplWidget(QWidget):
         self.canvas_qt.draw_idle()
 
     def on_button_release(self, event):
+        # This is only for drag+drop-mode
+        if self.click_mode != MODES.DEFAULT:
+            return
         picked_obj = self.picked_obj
         if picked_obj is None:
             return
         # Model data is updated from the view
         index = self.picked_obj_index
         xydata = picked_obj.get_xydata()
-        self.picked_obj_model.pts_px[index] = xydata[index]
+        self.picked_obj_model.update_pt_px(xydata[index], index)
         # Restore default state
         self.picked_obj = None
         self.picked_obj_model.redraw_pts_px.emit()
-        self.picked_obj_model.input_changed.emit()
 
     def on_motion_notify(self, event):
         picked_obj = self.picked_obj
@@ -401,8 +410,6 @@ class MplWidget(QWidget):
         xydata = picked_obj.get_xydata()
         # Implicit cast to np.ndarray
         xydata[index] = (event.xdata, event.ydata)
-        # Writing changed pts_px back into the model
-        self.picked_obj_model.pts_px[index] = xydata[index]
         picked_obj.set_data(*xydata.T)
         # Blitting operation
         self.canvas_qt.restore_region(self.background)
@@ -412,9 +419,6 @@ class MplWidget(QWidget):
         self.canvas_qt.blit(self.mpl_ax.bbox)
         #self.picked_obj_model.redraw_pts_px.emit()
         #self.picked_obj_model.input_changed.emit()
-
-    def on_figure_enter(self, event):
-        self.canvas_qt.setFocus()
 
 
     def confirm_delete(self):

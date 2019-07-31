@@ -367,7 +367,7 @@ class Trace(QObject):
         # Update of the model results plus view update of results
         self.input_changed.emit()
 
-    def update_pt_px(self, index: int, xydata):
+    def update_pt_px(self, xydata, index: int):
         # Assuming this is called from the view only thus raw points need not
         # be redrawn
         self.pts_px[index] = xydata
@@ -501,7 +501,7 @@ class Axis(QObject):
         self.input_changed.emit()
 
 
-    def update_pt_px(self, index: int, xydata):
+    def update_pt_px(self, xydata, index: int):
         """Update axis point in pixel coordinates 
         
         Leave values untouched and emit error message if
