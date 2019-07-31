@@ -4,8 +4,6 @@
 
 License: GPL version 3
 """
-from collections import namedtuple
-
 import numpy as np
 from numpy import NaN, isnan
 
@@ -16,13 +14,15 @@ import matplotlib.figure
 import matplotlib.image as mpimg
 import matplotlib.backends.backend_qt5agg as mpl_backend_qt
 
-# Constants definitions
-ClickModes = namedtuple(
-    "MODES",
-    "DEFAULT  SETUP_X_AXIS  SETUP_Y_AXIS  ADD_TRACE_PTS")
-MODES = ClickModes(0, 1, 2, 3)
-
+########## Constants definitions
+# Operation modes
+MODE_DEFAULT = 0
+MODE_SETUP_X_AXIS = 1
+MODE_SETUP_Y_AXIS = 2
+MODE_ADD_TRACE_PTS = 3
+# 2D NaN row for fast appending to trace or axes points arrays
 NAN_ROW_2D = np.full((1, 2), NaN)
+
 
 class MplWidget(QWidget):
     """This is the core graphic widget based on a matplotlib Qt backend.
@@ -57,7 +57,7 @@ class MplWidget(QWidget):
         super().__init__(parent)
         ########## Operation state
         # What happens when the plot canvas is clicked..
-        self.click_mode = MODES.DEFAULT
+        self.op_mode = MODE_DEFAULT
         self.curr_trace_no = 0
         # This stores the pyplot.Lines2D object when a plot item was picked
         self.picked_obj = None
@@ -111,38 +111,52 @@ class MplWidget(QWidget):
         self.using_model_redraw_tr_pts_px()
 
 
-    def sw_to_default(self):
-        print("Switching back to default mode")
-        if self.picked_obj is not None:
-            self.picked_obj_model.redraw_pts_px.emit()
-            self.picked_obj = None
-        self.click_mode = MODES.DEFAULT
-        self.mode_sw_default.emit()
-    
-    
+    @pyqtSlot(str)
+    def load_image(self, filename):
+        """Load source/input image for digitizing"""
+        # Remove existing image from plot canvas if present
+        if hasattr(self, "img_handle"):
+            self.img_handle.remove()
+        try:
+            image = mpimg.imread(filename)
+        except Exception as e:
+            self.show_error(e)
+        #self.resize(image.shape[0]+200, image.shape[1]+200)
+        self.img_handle = self.mpl_ax.imshow(
+            image[-1::-1], interpolation=self.conf.app_conf.img_interpolation,
+            origin="lower", zorder=0,)
+        self.canvas_qt.draw_idle()
+
+
     @pyqtSlot()
     def toggle_setup_x_axis(self):
-        if self.click_mode != MODES.SETUP_X_AXIS:
+        if self.op_mode != MODE_SETUP_X_AXIS:
             # Entering X-axis picking mode.
-            self.click_mode = MODES.SETUP_X_AXIS
+            self.op_mode = MODE_SETUP_X_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_x_axis.emit()
             print("Pick X axis points!")
             if isnan(self.model.x_ax.pts_px[1]).any():
                 # First axis point already set, select second one
-                self.pick_and_blit(self.model.x_ax, 1)
+                self.pick_and_blit(self.model.x_ax.pts_view_obj, 1)
             else:
-                # Begin with first axis point
-                self.pick_and_blit(self.model.x_ax, 0)
+                # In case the second point is already set, we delete its
+                # associated view object, invalidate the data and begin again
+                # with the first axis point
+                xydata = self.model.x_ax.pts_view_obj.get_xydata()
+                xydata[1] = (NaN, NaN)
+                self.model.x_ax.pts_px = xydata
+                self.model.x_ax.pts_view_obj.set_data(*xydata.T)
+                self.pick_and_blit(self.model.x_ax.pts_view_obj, 0)
         else:
             # When already in SETUP_X_AXIS mode, this switches back to default
             self.sw_to_default()
     
     @pyqtSlot()
     def toggle_setup_y_axis(self):
-        if self.click_mode != MODES.SETUP_Y_AXIS:
+        if self.op_mode != MODE_SETUP_Y_AXIS:
             # Entering Y-axis picking mode.
-            self.click_mode = MODES.SETUP_Y_AXIS
+            self.op_mode = MODE_SETUP_Y_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_y_axis.emit()
             print("Pick Y axis points!")
@@ -150,7 +164,13 @@ class MplWidget(QWidget):
                 # First axis point already set, select second one
                 self.pick_and_blit(self.model.y_ax.pts_view_obj, 1)
             else:
-                # Begin with first axis point
+                # In case the second point is already set, we delete its
+                # associated view object, invalidate the data and begin again
+                # with the first axis point
+                xydata = self.model.y_ax.pts_view_obj.get_xydata()
+                xydata[1] = (NaN, NaN)
+                self.model.y_ax.pts_px = xydata
+                self.model.y_ax.pts_view_obj.set_data(*xydata.T)
                 self.pick_and_blit(self.model.y_ax.pts_view_obj, 0)
         else:
             # When already in SETUP_Y_AXIS mode, this switches back to default
@@ -162,7 +182,7 @@ class MplWidget(QWidget):
         # when same button was clicked, toggle back to default mode.
         # Otherwise, given valid axes setup, set current trace according to
         # the index number and continue selecting trace points. 
-        if (    self.click_mode == MODES.ADD_TRACE_PTS
+        if (    self.op_mode == MODE_ADD_TRACE_PTS
                 and trace_no == self.curr_trace_no):
             self.sw_to_default()
         elif not self.model.axes_setup_is_complete():
@@ -179,30 +199,13 @@ class MplWidget(QWidget):
                 tr.redraw_pts_px.emit()
                 tr.input_changed.emit()
             # Enter or stay in add trace points mode
-            self.click_mode = MODES.ADD_TRACE_PTS
+            self.op_mode = MODE_ADD_TRACE_PTS
             pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
             tr.pts_view_obj.set_data(*pts_px_new.T)
             self.pick_and_blit(tr.pts_view_obj, tr.pts_px.shape[0]-1)
             # Qt signal reflecting the new state and trace number
             self.mode_sw_add_trace_pts.emit(trace_no)
             print(f"Pick trace {trace_no + 1} points!")
-
-
-    @pyqtSlot(str)
-    def load_image(self, filename):
-        """Load source/input image for digitizing"""
-        # Remove existing image from plot canvas if present
-        if hasattr(self, "img_handle"):
-            self.img_handle.remove()
-        try:
-            image = mpimg.imread(filename)
-        except Exception as e:
-            self.show_error(e)
-        #self.resize(image.shape[0]+200, image.shape[1]+200)
-        self.img_handle = self.mpl_ax.imshow(
-            image[-1::-1], interpolation=self.conf.app_conf.img_interpolation,
-            origin="lower", zorder=0,)
-        self.canvas_qt.draw_idle()
 
 
     @pyqtSlot()
@@ -302,30 +305,28 @@ class MplWidget(QWidget):
         # in order to receive key press events
         self.canvas_qt.setFocus()
 
-
     def on_key_press(self, event):
         print("Event key pressed is: ", event.key)
         if event.key == "escape":
             self.sw_to_default()
 
-
     def on_button_press(self, event):
-        ########## Add points etc.
+        ########## Mouse click event handler
         # event: Matplotlib event object
         # matplotlib.backend_bases.MouseButton.RIGHT = 3
         if event.button == 3:
-            if self.click_mode != MODES.DEFAULT:
+            if self.op_mode != MODE_DEFAULT:
                 self.sw_to_default()
-
-        xydata = (event.xdata, event.ydata)
-        model = self.model
-        # Ignore invalid coordinates (when clicked outside of plot canvas)
-        if None in xydata:
             return
-
-        if self.click_mode == MODES.SETUP_X_AXIS:
+        model = self.model
+        px_xy = (event.xdata, event.ydata)
+        # Ignore invalid coordinates (when clicked outside of plot canvas)
+        if None in px_xy:
+            return
+        ##### Add X-axis point
+        if self.op_mode == MODE_SETUP_X_AXIS:
             # Add point to the model. Emits error signal for invalid data
-            model.x_ax.add_pt_px(xydata)
+            model.x_ax.add_pt_px(px_xy)
 
             if isnan(model.x_ax.pts_px[1]).any():
                 # Normal case, first pixel was just set, pick second one
@@ -336,10 +337,10 @@ class MplWidget(QWidget):
                 print("X axis points complete")
                 self.valid_x_axis_setup.emit(True)
                 self.sw_to_default()
-
-        if self.click_mode == MODES.SETUP_Y_AXIS:
+        ##### Add Y-axis point
+        if self.op_mode == MODE_SETUP_Y_AXIS:
             # Add point to the model. Emits error signal for invalid data
-            model.y_ax.add_pt_px(xydata)
+            model.y_ax.add_pt_px(px_xy)
             
             if isnan(model.y_ax.pts_px[1]).any():
                 # Normal case, first pixel was just set, pick second one
@@ -350,15 +351,53 @@ class MplWidget(QWidget):
                 print("Y axis points complete")
                 self.valid_y_axis_setup.emit(True)
                 self.sw_to_default()
-
-        if self.click_mode == MODES.ADD_TRACE_PTS:
+        ##### Add trace point
+        if self.op_mode == MODE_ADD_TRACE_PTS:
             # Add point to the model. Emits error signal for invalid data
             tr = model.traces[self.curr_trace_no]
-            tr.add_pt_px(xydata)
+            tr.add_pt_px(px_xy)
             pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
             tr.pts_view_obj.set_data(*pts_px_new.T)
             self.pick_and_blit(tr.pts_view_obj, pts_px_new.shape[0]-1)
 
+    def on_pick(self, event):
+        # Mouse pick event handling
+        self.pick_and_blit(event.artist, event.ind)
+        self.canvas_qt.draw_idle()
+
+    def on_button_release(self, event):
+        # The mouse button release event is only used for drag+drop-mode
+        if self.op_mode != MODE_DEFAULT:
+            return
+        picked_obj = self.picked_obj
+        if picked_obj is None:
+            return
+        # Model data is updated from the view
+        index = self.picked_obj_index
+        xydata = picked_obj.get_xydata()
+        # This also emits the input-changed signal
+        self.picked_obj_model.update_pt_px(xydata[index], index)
+        # Restore default state
+        self.picked_obj = None
+        self.picked_obj_model.redraw_pts_px.emit()
+
+    def on_motion_notify(self, event):
+        picked_obj = self.picked_obj
+        if picked_obj is None:
+            return
+        index = self.picked_obj_index
+        xydata = picked_obj.get_xydata()
+        # Implicit cast to np.ndarray
+        xydata[index] = (event.xdata, event.ydata)
+        picked_obj.set_data(*xydata.T)
+        # Blitting operation
+        self.canvas_qt.restore_region(self.background)
+        # Redraws object using cached Agg renderer
+        self.mpl_ax.draw_artist(picked_obj)
+        # Blitting final step does seem to also update the Qt widget.
+        self.canvas_qt.blit(self.mpl_ax.bbox)
+        #self.picked_obj_model.redraw_pts_px.emit()
+        #self.picked_obj_model.input_changed.emit()
 
 
     def pick_and_blit(self, view_obj, index):
@@ -382,43 +421,13 @@ class MplWidget(QWidget):
         view_obj.set_visible(True)
 
 
-    def on_pick(self, event):
-        # Mouse pick event handling
-        self.pick_and_blit(event.artist, event.ind)
-        self.canvas_qt.draw_idle()
-
-    def on_button_release(self, event):
-        # This is only for drag+drop-mode
-        if self.click_mode != MODES.DEFAULT:
-            return
-        picked_obj = self.picked_obj
-        if picked_obj is None:
-            return
-        # Model data is updated from the view
-        index = self.picked_obj_index
-        xydata = picked_obj.get_xydata()
-        self.picked_obj_model.update_pt_px(xydata[index], index)
-        # Restore default state
-        self.picked_obj = None
-        self.picked_obj_model.redraw_pts_px.emit()
-
-    def on_motion_notify(self, event):
-        picked_obj = self.picked_obj
-        if picked_obj is None:
-            return
-        index = self.picked_obj_index
-        xydata = picked_obj.get_xydata()
-        # Implicit cast to np.ndarray
-        xydata[index] = (event.xdata, event.ydata)
-        picked_obj.set_data(*xydata.T)
-        # Blitting operation
-        self.canvas_qt.restore_region(self.background)
-        # Redraws object using cached Agg renderer
-        self.mpl_ax.draw_artist(picked_obj)
-        # Blitting final step does seem to also update the Qt widget.
-        self.canvas_qt.blit(self.mpl_ax.bbox)
-        #self.picked_obj_model.redraw_pts_px.emit()
-        #self.picked_obj_model.input_changed.emit()
+    def sw_to_default(self):
+        print("Switching back to default mode")
+        if self.picked_obj is not None:
+            self.picked_obj_model.redraw_pts_px.emit()
+            self.picked_obj = None
+        self.op_mode = MODE_DEFAULT
+        self.mode_sw_default.emit()
 
 
     def confirm_delete(self):

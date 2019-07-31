@@ -5,15 +5,13 @@
 License: GPL version 3
 """
 import io
-import numpy as np
 from functools import partial
 
-from PyQt5.QtCore import Qt, QMimeData, QObject, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLineEdit,
-        QPlainTextEdit, QMessageBox, QGroupBox, QLabel, QPushButton,
-        QRadioButton, QButtonGroup,
+        QApplication, QWidget, QVBoxLayout,  QSplitter, QPlainTextEdit,
+        QMessageBox,
         )
 
 from mpl_widget import MplWidget
@@ -79,7 +77,6 @@ class Digitizer(QWidget):
         ########## Set up all widgets public signals for interactive GUI
         ##### Connect model state changes to the GUI widgets
         # Update input widget immediately when axis config changes
-        # FIXME: Not implemented
         model.x_ax.config_changed.connect(inputw.update_axes_view)
         model.y_ax.config_changed.connect(inputw.update_axes_view)
         # Update plot view displaying axes points as well

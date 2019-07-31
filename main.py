@@ -9,9 +9,6 @@ import os
 import sys
 import pickle
 
-import numpy as np
-from numpy import NaN, isnan
-
 from PyQt5.QtCore import Qt, QDir, QSize, pyqtSlot
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
@@ -20,7 +17,7 @@ from PyQt5.QtWidgets import (
 
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 
-from upylib.pyqt import ipython_pyqt_boilerplate, get_qobj_base_state
+from upylib.pyqt import ipython_pyqt_boilerplate
 from upylib.pyqt_debug import patch_pyqt_event_exception_hook
 
 from digitizer import Digitizer
