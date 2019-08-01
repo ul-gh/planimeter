@@ -31,8 +31,9 @@ class SciLineEdit(QLineEdit):
     Also, this takes a number as preset value instead of a string.
     """
     valid_number_entered = pyqtSignal(float)
-    def __init__(self, preset_value, placeholderText, *args, **kwargs):
-        text = None if preset_value is None else f"{preset_value:G}"
+    def __init__(self, preset_value, placeholderText,
+                 num_fmt=".6G", *args, **kwargs):
+        text = None if preset_value is None else f"{preset_value:{num_fmt}}"
         super().__init__(
             text, *args, placeholderText=placeholderText, **kwargs)
         v = QDoubleValidator(self, notation=QDoubleValidator.ScientificNotation)
@@ -64,8 +65,10 @@ class InputWidget(QWidget):
                 "Pick X-axis\nCoords", self, checkable=True)
         self.btn_pick_x.setAutoExclusive(True)
         hbox = QHBoxLayout(self)
-        self.xstartw = SciLineEdit(self.x_ax.pts_data[0], "X Axis Start Value")
-        self.xendw = SciLineEdit(self.x_ax.pts_data[1], "X Axis End Value")
+        self.xstartw = SciLineEdit(
+            self.x_ax.pts_data[0], "X Axis Start Value", model.num_fmt)
+        self.xendw = SciLineEdit(
+            self.x_ax.pts_data[1], "X Axis End Value", model.num_fmt)
         hbox.addWidget(self.xstartw)
         hbox.addWidget(self.xendw)
         # Lin/log buttons
@@ -135,13 +138,13 @@ class InputWidget(QWidget):
         """Updates buttons and input boxes to represent the data model state"""
         x_ax = self.x_ax
         y_ax = self.y_ax
-        num_format = self.model.num_format
+        num_fmt = self.model.num_fmt
         # Update axis section value input boxes
         x0, x1, y0, y1 = *x_ax.pts_data, *y_ax.pts_data
-        self.xstartw.setText("" if x0 is None else f"{x0:{num_format}}")
-        self.xendw.setText("" if x1 is None else f"{x1:{num_format}}")
-        self.ystartw.setText("" if y0 is None else f"{y0:{num_format}}")
-        self.yendw.setText("" if y1 is None else f"{y1:{num_format}}")
+        self.xstartw.setText("" if x0 is None else f"{x0:{num_fmt}}")
+        self.xendw.setText("" if x1 is None else f"{x1:{num_fmt}}")
+        self.ystartw.setText("" if y0 is None else f"{y0:{num_fmt}}")
+        self.yendw.setText("" if y1 is None else f"{y1:{num_fmt}}")
         invalid_x = x_ax.log_scale and isclose(
             x_ax.pts_data, 0.0, atol=x_ax.atol).any()
         invalid_y = y_ax.log_scale and isclose(

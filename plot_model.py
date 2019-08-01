@@ -70,7 +70,7 @@ class DataModel(QObject):
             in zip(conf.model_conf.traces_names, conf.model_conf.traces_colors)
             ]
         # Python string format code for display of numbers
-        self.num_format = conf.app_conf.num_format
+        self.num_fmt = conf.app_conf.num_fmt_gui
         # Absolute tolerance for testing if values are close to zero
         self.atol = conf.model_conf.atol
         # Store axes configuration persistently on disk when set
@@ -243,7 +243,7 @@ class DataModel(QObject):
         y_ax = self.y_ax
         if None in x_ax.pts_data or None in y_ax.pts_data:
             return False
-        if isnan((x_ax.pts_px, y_ax.pts_px)).any():
+        if isnan(np.concatenate((x_ax.pts_px, y_ax.pts_px))).any():
             return False
         invalid_x = x_ax.log_scale and isclose(
             x_ax.pts_data, 0.0, atol=x_ax.atol).any()
@@ -474,17 +474,17 @@ class Axis(QObject):
         Emits error message signal if invalid, emits view update triggers
         """
         pts_px = self.pts_px
-        both_unset = isnan(pts_px[0]).any() and isnan(pts_px[1]).any()
-        none_unset = not isnan(pts_px).any()
-        second_unset = isnan(pts_px[1]).any()
+        # Results are each True when point is unset..
+        unset_1st, unset_2nd = isnan(pts_px).any(axis=1)
         pt_index = 0
-        if none_unset:
-            # Invalidate second point, so that it will be set in next call
-            # Also, this makes matplotlib not plot this point
+        if not unset_1st and not unset_2nd:
+            # Both points set. Invalidate second point, so that it will be set
+            # in next call. NaN values make matplotlib not plot this point.
             self.pts_px[1] = (NaN, NaN)
-        elif not both_unset:
-            # Only one point is still unset.
-            if second_unset:
+        elif not unset_1st or not unset_2nd:
+            # Only one point is still unset. (Both not set was covered above)
+            # Set index according to the remaining unset point:
+            if unset_2nd:
                 pt_index = 1
             # Check if input point is too close to other point, emit
             # error message and return if this is the case
@@ -522,7 +522,7 @@ class Axis(QObject):
     def delete_pt_px(self, index: int):
         """Delete axis point in pixel coordinates 
         """
-        self.pts_px = np.delete(self.pts_px, index, axis=0)
+        self.pts_px[index] = (NaN, NaN)
         # Trigger an update of the view
         self.redraw_pts_px.emit()
         # Update of the model results plus view update of results

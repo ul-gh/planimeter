@@ -12,8 +12,11 @@ class APPLICATION():
     # Default window size
     window_size = (800, 600)
 
-    # Python string format code for GUI number formatting
-    num_format = "G"
+    ### String format codes, see: https://fmt.dev/latest/syntax.html
+    # Number string format code for DATA EXPORT
+    num_fmt_export = ".6E"
+    # Number string format code for GUI display
+    num_fmt_gui = ".6G"
     # Decimal point character. Use "system" for auto-detect based on locale
     decimal_chr = "system"
     # Image data rescaling interpolation method.

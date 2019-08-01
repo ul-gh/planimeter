@@ -22,6 +22,7 @@ MODE_SETUP_Y_AXIS = 2
 MODE_ADD_TRACE_PTS = 3
 # 2D NaN row for fast appending to trace or axes points arrays
 NAN_ROW_2D = np.full((1, 2), NaN)
+NAN_ROW_2D.setflags(write=False)
 
 
 class MplWidget(QWidget):
@@ -130,51 +131,43 @@ class MplWidget(QWidget):
 
     @pyqtSlot()
     def toggle_setup_x_axis(self):
-        if self.op_mode != MODE_SETUP_X_AXIS:
+        x_ax = self.model.x_ax
+        # When already in SETUP_X_AXIS mode, switch back to default mode
+        if self.op_mode == MODE_SETUP_X_AXIS:
+            self.sw_to_default()
+        else:
             # Entering X-axis picking mode.
             self.op_mode = MODE_SETUP_X_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_x_axis.emit()
             print("Pick X axis points!")
-            if isnan(self.model.x_ax.pts_px[1]).any():
-                # First axis point already set, select second one
-                self.pick_and_blit(self.model.x_ax.pts_view_obj, 1)
+            # We always start setting the first point first, except if only
+            # the second point is unset. For this case, begin with index 1:
+            ax_pts_invalid = isnan(x_ax.pts_px).any(axis=1).tolist()
+            if ax_pts_invalid == [False, True]:
+                self.pick_and_blit(x_ax.pts_view_obj, 1)
             else:
-                # In case the second point is already set, we delete its
-                # associated view object, invalidate the data and begin again
-                # with the first axis point
-                xydata = self.model.x_ax.pts_view_obj.get_xydata()
-                xydata[1] = (NaN, NaN)
-                self.model.x_ax.pts_px = xydata
-                self.model.x_ax.pts_view_obj.set_data(*xydata.T)
-                self.pick_and_blit(self.model.x_ax.pts_view_obj, 0)
-        else:
-            # When already in SETUP_X_AXIS mode, this switches back to default
-            self.sw_to_default()
+                self.pick_and_blit(x_ax.pts_view_obj, 0)
     
     @pyqtSlot()
     def toggle_setup_y_axis(self):
-        if self.op_mode != MODE_SETUP_Y_AXIS:
+        y_ax = self.model.y_ax
+        # When already in SETUP_Y_AXIS mode, switch back to default mode
+        if self.op_mode == MODE_SETUP_Y_AXIS:
+            self.sw_to_default()
+        else:
             # Entering Y-axis picking mode.
             self.op_mode = MODE_SETUP_Y_AXIS
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_y_axis.emit()
             print("Pick Y axis points!")
-            if isnan(self.model.y_ax.pts_px[1]).any():
-                # First axis point already set, select second one
-                self.pick_and_blit(self.model.y_ax.pts_view_obj, 1)
+            # We always start setting the first point first, except if only
+            # the second point is unset. For this case, begin with index 1:
+            ax_pts_invalid = isnan(y_ax.pts_px).any(axis=1).tolist()
+            if ax_pts_invalid == [False, True]:
+                self.pick_and_blit(y_ax.pts_view_obj, 1)
             else:
-                # In case the second point is already set, we delete its
-                # associated view object, invalidate the data and begin again
-                # with the first axis point
-                xydata = self.model.y_ax.pts_view_obj.get_xydata()
-                xydata[1] = (NaN, NaN)
-                self.model.y_ax.pts_px = xydata
-                self.model.y_ax.pts_view_obj.set_data(*xydata.T)
-                self.pick_and_blit(self.model.y_ax.pts_view_obj, 0)
-        else:
-            # When already in SETUP_Y_AXIS mode, this switches back to default
-            self.sw_to_default()
+                self.pick_and_blit(y_ax.pts_view_obj, 0)
 
     @pyqtSlot(int)
     def toggle_add_trace_pts_mode(self, trace_no):
@@ -356,6 +349,8 @@ class MplWidget(QWidget):
             # Add point to the model. Emits error signal for invalid data
             tr = model.traces[self.curr_trace_no]
             tr.add_pt_px(px_xy)
+            # Append one new point to the view internal data array and select
+            # the view object for mouse placement of the next point
             pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
             tr.pts_view_obj.set_data(*pts_px_new.T)
             self.pick_and_blit(tr.pts_view_obj, pts_px_new.shape[0]-1)

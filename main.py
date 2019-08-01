@@ -135,6 +135,7 @@ class MainWindow(QMainWindow):
         # Dialog box signals
         self.dlg_open_image.fileSelected.connect(self.cw.load_image)
         self.dlg_open_image.directoryEntered.connect(self.set_wdir)
+        self.dlg_export_csv.fileSelected.connect(self.cw.on_dlg_export_csv)
 
     def closeEvent(self, event):
         """closeEvent() inherited from QMainWindow, reimplemented here.

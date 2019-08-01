@@ -7,6 +7,8 @@ License: GPL version 3
 import io
 from functools import partial
 
+import numpy as np
+
 from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
@@ -137,12 +139,13 @@ class Digitizer(QWidget):
         #self.clipboard.dataChanged.connect(self.clipboardChanged)
 
 
-    def array2html(self, array, decimal_chr):
-        """Make a HTML table with two columns from 2D numpy array"""
+    def array2html(self, array, decimal_chr, num_fmt):
+        """Make a HTML table with two columns from 2D numpy array
+        """
         def row2html(columns):
             r = '<tr>'
             for i in columns:
-                r += f'<td>{i}</td>'
+                r += f'<td>{i:{num_fmt}}</td>'
             return r + '</tr>'
         header = (
           '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">'
@@ -160,6 +163,42 @@ class Digitizer(QWidget):
         if decimal_chr != ".":
             s = s.replace(".", decimal_chr)
         return header + s + footer
+
+
+    def array2csv(self, array, decimal_chr, num_fmt):
+        """Output np.array as CSV text.
+        """
+        #datastring = np.array2string(pts_i, separator="\t")
+        strio = io.StringIO()
+        np.savetxt(strio, array, delimiter=" ", fmt=f"%{num_fmt}")
+        s = strio.getvalue()
+        strio.close()
+        if decimal_chr != ".":
+            s = s.replace(".", decimal_chr)
+        return s
+
+
+    @pyqtSlot(str)
+    def on_dlg_export_csv(self, filename):
+        """Export CSV textstring to file
+        """
+        trace = self.model.traces[self.mplw.curr_trace_no]
+        pts_i = trace.pts_i
+        if self.conf.app_conf.decimal_chr.lower() == "system":
+            decimal_chr = self.locale().decimalPoint()
+        else:
+            decimal_chr = self.conf.app_conf.decimal_chr
+        num_fmt = self.conf.app_conf.num_fmt_export
+        print(f"Storing CSV output to file: {filename}")
+        print(f"Number format string used is: {num_fmt}")
+        print(f'==> Decimal point character used is: "{decimal_chr}" <==')
+        pts_i_csv = self.array2csv(pts_i, decimal_chr, num_fmt)
+        try:
+            with open(filename, "x") as f:
+                f.write(pts_i_csv)
+        except IOError as e:
+            self.show_error(e)
+
 
     @pyqtSlot()
     def clipboardChanged(self):
@@ -182,28 +221,28 @@ class Digitizer(QWidget):
             decimal_chr = self.locale().decimalPoint()
         else:
             decimal_chr = self.conf.app_conf.decimal_chr
+        num_fmt = self.conf.app_conf.num_fmt_export
         print("Putting CSV and HTML table data into clipboard!")
+        print(f"Number format string used is: {num_fmt}")
         print(f'==> Decimal point character used is: "{decimal_chr}" <==')
-        #datastring = np.array2string(pts_i, separator="\t")
-        #strio = io.StringIO()
-        #np.savetxt(strio, pts_i, delimiter="\t", fmt="%.6e")
-        #datastring = strio.getvalue()
-        #strio.close()
-        #databytes = bytes(datastring, encoding="utf-8")
+        pts_i_csv = self.array2csv(pts_i, decimal_chr, num_fmt)
+        pts_i_html = self.array2html(pts_i, decimal_chr, num_fmt)
         qmd = QMimeData()
-        #qmd.setData("Csv", databytes)
-        qmd.setHtml(self.array2html(pts_i, decimal_chr))
+        qmd.setData("text/csv", bytes(pts_i_csv, encoding="utf-8"))
+        qmd.setData("text/plain", bytes(pts_i_csv, encoding="utf-8"))
+        qmd.setHtml(pts_i_html)
         self.clipboard.setMimeData(qmd)
-        #self.clipboard.setText(datastring)
 
 
     def show_error(self, exception):
-        self.messagebox.setIcon(QMessageBox.Warning)
+        self.messagebox.setIcon(QMessageBox.Critical)
         self.messagebox.setText("<b>Error!</b>")
-        self.messagebox.setInformativeText(exception.args[0])
+        text = " ".join([str(i) for i in exception.args])
+        if hasattr(exception, "filename"):
+            text += f"\nFilename: {exception.filename}"
+        print(text)
+        self.messagebox.setInformativeText(text)
         self.messagebox.setWindowTitle("Plot Workbench Error")
-        import traceback
-        traceback.print_tb(exception.__traceback__)
         self.messagebox.exec_()
 
     @pyqtSlot(str)
