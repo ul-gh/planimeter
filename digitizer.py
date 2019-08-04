@@ -81,17 +81,13 @@ class Digitizer(QWidget):
         # Update input widget immediately when axis config changes
         model.x_ax.config_changed.connect(inputw.update_axes_view)
         model.y_ax.config_changed.connect(inputw.update_axes_view)
-        # Update plot view displaying axes points as well
-        model.x_ax.redraw_pts_px.connect(mplw.using_model_redraw_ax_pts_px)
-        model.y_ax.redraw_pts_px.connect(mplw.using_model_redraw_ax_pts_px)
-        # Update plot view again when origin has been calculated
-        model.affine_transformation_defined.connect(
-            mplw.using_model_redraw_ax_pts_px)
         # Update traces view when model has updated data.
         # Since the input data is normally set by the view itself, a redraw
         # of raw input data is not performed when this signal is received.
         model.output_data_changed.connect(mplw.update_output_view)
         model.output_data_changed[int].connect(mplw.update_output_view)
+        # Update plot view displaying axes points as well
+        model.redraw_ax_pts_px.connect(mplw.using_model_redraw_ax_pts_px)
         # Re-draw display of the raw (pixel-space) input points if requested.
         model.redraw_tr_pts_px.connect(mplw.using_model_redraw_tr_pts_px)
         model.redraw_tr_pts_px[int].connect(mplw.using_model_redraw_tr_pts_px)

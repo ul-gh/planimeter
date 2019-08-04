@@ -90,7 +90,7 @@ class MplWidget(QWidget):
         # Qt5Agg backend. This returns the matplotlib canvas as a Qt widget.
         self.canvas_qt = mpl_backend_qt.FigureCanvas(self.fig)
         # Only one matplotlib AxesSubplot instance is used
-        self.mpl_ax = self.fig.add_subplot(111)
+        self.mpl_ax = self.fig.add_subplot(111, autoscale_on=False)
         self.mpl_ax.xaxis.set_visible(False)
         self.mpl_ax.yaxis.set_visible(False)
         # After removing axis visibility, reset matplotlib layout to fill space
@@ -126,7 +126,9 @@ class MplWidget(QWidget):
         self.img_handle = self.mpl_ax.imshow(
             image[-1::-1], interpolation=self.conf.app_conf.img_interpolation,
             origin="lower", zorder=0,)
+        self.mpl_ax.autoscale(enable=True)
         self.canvas_qt.draw_idle()
+        self.mpl_ax.autoscale(enable=False)
 
 
     @pyqtSlot()
@@ -187,10 +189,8 @@ class MplWidget(QWidget):
             # delete them first before adding new points.
             tr = self.model.traces[trace_no]
             if tr.pts_px.shape[0] > 0 and self.confirm_delete():
-                # Clears the data objects of curr_trace
+                # Clears data objects of curr_trace and triggers a view update
                 tr.init_data()
-                tr.redraw_pts_px.emit()
-                tr.input_changed.emit()
             # Enter or stay in add trace points mode
             self.op_mode = MODE_ADD_TRACE_PTS
             pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
@@ -238,7 +238,7 @@ class MplWidget(QWidget):
         ##### Anyways, after updating axes point markers, redraw plot canvas:
         # Autoscale and fit axes limits in case points are outside image limits
         self.mpl_ax.relim()
-        self.mpl_ax.autoscale()
+        self.mpl_ax.autoscale(None)
         self.canvas_qt.draw_idle()
 
 
@@ -289,7 +289,7 @@ class MplWidget(QWidget):
                 view_obj.set_data(*pts_i_px.T)
         ########## After updating all traces and markers, redraw plot canvas
         self.mpl_ax.relim()
-        self.mpl_ax.autoscale()
+        self.mpl_ax.autoscale(None)
         self.canvas_qt.draw_idle()
 
 
@@ -326,7 +326,6 @@ class MplWidget(QWidget):
                 self.pick_and_blit(model.x_ax.pts_view_obj, 1)
             else:
                 # Two X-axis points complete. Reset Operating mode.
-                self.picked_obj = None
                 print("X axis points complete")
                 self.valid_x_axis_setup.emit(True)
                 self.sw_to_default()
@@ -340,7 +339,6 @@ class MplWidget(QWidget):
                 self.pick_and_blit(model.y_ax.pts_view_obj, 1)
             else:
                 # Two Y-axis points complete. Reset Operating mode.
-                self.picked_obj = None
                 print("Y axis points complete")
                 self.valid_y_axis_setup.emit(True)
                 self.sw_to_default()
@@ -370,11 +368,10 @@ class MplWidget(QWidget):
         # Model data is updated from the view
         index = self.picked_obj_index
         xydata = picked_obj.get_xydata()
-        # This also emits the input-changed signal
+        # This also emits the pts_changed signal
         self.picked_obj_model.update_pt_px(xydata[index], index)
         # Restore default state
         self.picked_obj = None
-        self.picked_obj_model.redraw_pts_px.emit()
 
     def on_motion_notify(self, event):
         picked_obj = self.picked_obj
@@ -384,15 +381,20 @@ class MplWidget(QWidget):
         xydata = picked_obj.get_xydata()
         # Implicit cast to np.ndarray
         xydata[index] = (event.xdata, event.ydata)
+        # Set data only in view component (model is updated on button release)
         picked_obj.set_data(*xydata.T)
+        ### Option:
+        # Set data also in model when dragging existing points.
+        # Causes re-calculation.
+        if self.op_mode == MODE_DEFAULT:
+            self.picked_obj_model.update_pt_px(xydata[index], index)
+        ###
         # Blitting operation
         self.canvas_qt.restore_region(self.background)
         # Redraws object using cached Agg renderer
         self.mpl_ax.draw_artist(picked_obj)
         # Blitting final step does seem to also update the Qt widget.
         self.canvas_qt.blit(self.mpl_ax.bbox)
-        #self.picked_obj_model.redraw_pts_px.emit()
-        #self.picked_obj_model.input_changed.emit()
 
 
     def pick_and_blit(self, view_obj, index):
@@ -419,8 +421,8 @@ class MplWidget(QWidget):
     def sw_to_default(self):
         print("Switching back to default mode")
         if self.picked_obj is not None:
-            self.picked_obj_model.redraw_pts_px.emit()
             self.picked_obj = None
+            self.using_model_redraw_tr_pts_px()
         self.op_mode = MODE_DEFAULT
         self.mode_sw_default.emit()
 
