@@ -111,146 +111,18 @@ class DataModel(QObject):
         if self.axes_setup_is_complete():
             self._calculate_coordinate_transformation()
 
-    ########## Internals
-    @pyqtSlot()
-    def _calculate_coordinate_transformation(self) -> None:
-        """Calculates data axes origin point offset in pixel coordinates and
-        the coordinate transformation matrix including axes scale.
-
-        Axes scale can be logarithmic, points need to be linear: For log axes,
-        linearised values are used and later transformed back to log scale.
-
-        For backplotting the result, inverse transformation matrix is also
-        calculated.
-
-        This reads from and manipulates the input Trace instance.
+    ########## GUI and Public part
+    #FIXME:FIXME
+    def export_traces(*trace_nos, n=100, x_start: float, x_end: float) ->
+    np.ndarray:
+        """Interpolate data from the given trace numbers using a common
+        interpolation grid with n points, spaced evenly between x_start
+        and x_end and return everything with axes and traces data in
+        columns of length n. First column: X-axis interpolation values.
         """
-        # This can be called before all axes points have been set
-        if not self.axes_setup_is_complete():
-            return
-        # 2D arrays, x and y pixel coordinates are in rows
-        x_ax_px = self.x_ax.pts_px
-        y_ax_px = self.y_ax.pts_px
-        # For logarithmic axes, its values are linearised.
-        x_ax_data = (np.log(self.x_ax.pts_data) / np.log(self.x_ax.log_base)
-                     if self.x_ax.log_scale
-                     else np.array(self.x_ax.pts_data))
-        y_ax_data = (np.log(self.y_ax.pts_data) / np.log(self.y_ax.log_base)
-                     if self.y_ax.log_scale
-                     else np.array(self.y_ax.pts_data))
+        n_pts = trace.n_pts_interpolation
+        self.x_grid_export = np.linspace(pts[0,0], pts[-1,0], num=n_pts)
 
-        # Axes section vectors
-        x_ax_vect = x_ax_px[1] - x_ax_px[0]
-        y_ax_vect = y_ax_px[1] - y_ax_px[0]
-
-        # Calculate pixel offset of data axes origin point from both axes.
-        # This is done by extrapolating axes sections down to zero value.
-        # Because of limited accuracy of graphic point selection, the finally
-        # used origin offset is averaged between both axes.
-        origin_xax = x_ax_px[0] - x_ax_vect * (
-            x_ax_data[0] / (x_ax_data[1] - x_ax_data[0])
-            )
-        origin_yax = y_ax_px[0] - y_ax_vect * (
-            y_ax_data[0] / (y_ax_data[1] - y_ax_data[0])
-            )
-        # The result axes offset is later used for transformating all points
-        self.origin_px = (origin_xax + origin_yax) / 2
-        
-        # Scale factor between data axes values and length in pixel coordinates
-        x_scale = np.linalg.norm(x_ax_vect) / (x_ax_data[1] - x_ax_data[0]) 
-        y_scale = np.linalg.norm(y_ax_vect) / (y_ax_data[1] - y_ax_data[0])
-        # Matrix representation of scale
-        scale_m = np.diag((x_scale, y_scale))
-        # Inverse scale for opposite transformation direction
-        inv_scale_m = np.diag((1/x_scale, 1/y_scale))
-
-        # Axes unit base vectors, unit length in pixel coordinates
-        x_ax_uvect = x_ax_vect / np.linalg.norm(x_ax_vect)
-        y_ax_uvect = y_ax_vect / np.linalg.norm(y_ax_vect) 
-        # Matrix representation of base vectors
-        data_unit_base = np.stack((x_ax_uvect, y_ax_uvect), axis=1)
-        
-        # Inverse of base matrix transforms offset pixel coordinates
-        # (i.e. vectors from data axes origin point to graph point)
-        # into multiples of the data coordinate base vectors.
-        # That is, the wanted data space values, but still scaled
-        # in pixel space length units.
-        data_inv_base = np.linalg.inv(data_unit_base)
-
-        # Left-multiplication with inverse scale matrix yields the
-        # matrix transforming offset pixel coordinates into data units.
-        # "@" is the numpy matrix product operator.
-        self._px_to_data_m = inv_scale_m @ data_inv_base
-        # Also calculating inverse transformation matrix for backplotting
-        # interpolated values onto the pixel plane.
-        # Scale must be multiplied from the right-hand side.
-        self._data_to_px_m = data_unit_base @ scale_m
-
-        # Affine-linear coordinate transformation is now defined, trigger an
-        # update of all plot traces in case trace data is already available.
-        self.calculate_outputs()
-        self.redraw_ax_pts_px.emit()
-
-    def _px_to_linear_data_coords(self, trace) -> None:
-        """Transform image pixel coordinates to linear or
-        linearized (in case of log axes) data coordinate system.
-
-        This reads from and manipulates the input Trace instance.
-        """
-        # Offset raw points by pixel coordinate offset of data axes origin.
-        # pts_px is list of x,y-tuples
-        pts_shifted = trace.pts_px - self.origin_px
-        # Transform into data coodinates using pre-calculated matrix.
-        # T is a property alias for the numpy.ndarray.transpose method.
-        trace.pts_lin = (self._px_to_data_m @ pts_shifted.T).T
-
-    def _sort_tr_pts(self, trace) -> None:
-        """Sort trace points along the first axis and
-        remove duplicate rows.
-
-        Because the orientation of the data coordinate system in pixel
-        coordinates is also first known after transformation, the sort
-        indices are also used to sort the input points in the same
-        order as the output. That step is especially useful for plotting
-        when points are added out-of-order.
-        """
-        # Sort with increasing X values and remove duplicate rows. This is
-        # necessary for interpolation and likely desirable for export data
-        trace.pts_lin, unique_ids = np.unique(
-                            trace.pts_lin, axis=0, return_index=True)
-        trace.pts_px = trace.pts_px[unique_ids]
-
-    def _interpolate_cubic_splines(self, trace) -> None:
-        """Acts on linear coordinates.
-        Needs at least four data points for interpolation."""
-        pts = trace.pts_lin
-        if pts.shape[0] < 4:
-            return
-        # Scipy interpolate
-        f_interp = interp1d(*pts.T, kind="cubic")
-        # Generate finer grid
-        xgrid = np.linspace(pts[0,0], pts[-1,0], num=trace.n_pts_interpolation)
-        yvals = f_interp(xgrid)
-        trace.pts_lin_i = np.stack((xgrid, yvals), axis=1)
-
-    def _handle_log_scale(self, trace) -> None:
-        """For log axes, the linearised coordinates are transformed
-        back to original logarithmic axes scale. No action for lin axes.
-        """
-        # Make a copy to keep the original linearised coordinates
-        pts = trace.pts_lin.copy()
-        pts_i = trace.pts_lin_i.copy()
-        if self.x_ax.log_scale:
-            pts[:,0] = np.power(self.x_ax.log_base, pts[:,0])
-            pts_i[:,0] = np.power(self.x_ax.log_base, pts_i[:,0])
-        if self.y_ax.log_scale:
-            pts[:,1] = np.power(self.y_ax.log_base, pts[:,1])
-            pts_i[:,1] = np.power(self.y_ax.log_base, pts_i[:,1])
-        trace.pts = pts
-        trace.pts_i = pts_i
-
-
-    ########## Public methods
     def axes_setup_is_complete(self) -> bool:
         """Returns True if axes configuration is all complete and valid
         """
@@ -299,12 +171,13 @@ class DataModel(QObject):
                 tr._init_data()
             else:
                 # These calls do the heavy work
-                self._px_to_linear_data_coords(tr)
+                tr._px_to_linear_data_coords(self._px_to_data_m, self.origin_px)
                 if sorting_needed:
-                    self._sort_tr_pts(tr)
-                self._interpolate_cubic_splines(tr)
+                    tr._sort_pts()
+                # Anyways:
+                tr._interpolate_cubic_splines()
                 # Transform result data coordinates back to log scale if needed
-                self._handle_log_scale(tr)
+                tr._handle_log_scale(self.x_ax, self.y_ax)
         # Emit signals informing of updated trace data
         if trace_no is None:
             self.output_data_changed.emit()
@@ -317,6 +190,103 @@ class DataModel(QObject):
         when the application is closed
         """
         self.store_ax_conf = state
+
+    ########## Model-specific implementation part
+    @pyqtSlot()
+    def _calculate_coordinate_transformation(self) -> None:
+        """Calculates data axes origin point offset in pixel coordinates and
+        the coordinate transformation matrix including axes scale.
+
+        Axes scale can be logarithmic: For log axes, linearised values
+        are used and later transformed back to log scale.
+
+        For backplotting the result, inverse transformation matrix is also
+        calculated.
+        """
+        # This can be called before all axes points have been set
+        if not self.axes_setup_is_complete():
+            return
+        # 2D arrays, x and y pixel coordinates are in rows
+        x_ax_px = self.x_ax.pts_px
+        y_ax_px = self.y_ax.pts_px
+        # For logarithmic axes, its values are linearised.
+        x_ax_data = (np.log(self.x_ax.pts_data) / np.log(self.x_ax.log_base)
+                     if self.x_ax.log_scale
+                     else np.array(self.x_ax.pts_data))
+        y_ax_data = (np.log(self.y_ax.pts_data) / np.log(self.y_ax.log_base)
+                     if self.y_ax.log_scale
+                     else np.array(self.y_ax.pts_data))
+
+        # Axes section vectors
+        x_ax_vect = x_ax_px[1] - x_ax_px[0]
+        y_ax_vect = y_ax_px[1] - y_ax_px[0]
+
+        # Calculate data axes origin in pixel coordinates for both axes.
+        # This is done by extrapolating axes sections down to zero value.
+        origin_xax = x_ax_px[0] - x_ax_vect * (
+            x_ax_data[0] / (x_ax_data[1] - x_ax_data[0])
+            )
+        origin_yax = y_ax_px[0] - y_ax_vect * (
+            y_ax_data[0] / (y_ax_data[1] - y_ax_data[0])
+            )
+        # Calculate intersection point of the possibly shifted data coordinate
+        # axes.
+        ax_intersection = self._lines_intersection(x_ax_px, y_ax_px)
+        # Result data axes position is later used for transforming all points
+        self.origin_px = origin_yax + (origin_xax - ax_intersection)
+        
+        # Scale factor between data axes values and length in pixel coordinates
+        x_scale = np.linalg.norm(x_ax_vect) / (x_ax_data[1] - x_ax_data[0]) 
+        y_scale = np.linalg.norm(y_ax_vect) / (y_ax_data[1] - y_ax_data[0])
+        # Matrix representation of scale
+        scale_m = np.diag((x_scale, y_scale))
+        # Inverse scale for opposite transformation direction
+        inv_scale_m = np.diag((1/x_scale, 1/y_scale))
+
+        # Axes unit base vectors, unit length in pixel coordinates
+        x_ax_uvect = x_ax_vect / np.linalg.norm(x_ax_vect)
+        y_ax_uvect = y_ax_vect / np.linalg.norm(y_ax_vect) 
+        # Matrix representation of base vectors
+        data_unit_base = np.stack((x_ax_uvect, y_ax_uvect), axis=1)
+        
+        # Inverse of base matrix transforms offset pixel coordinates
+        # (i.e. vectors from data axes origin point to graph point)
+        # into multiples of the data coordinate base vectors.
+        # That is, the wanted data space values, but still scaled
+        # in pixel space length units.
+        data_inv_base = np.linalg.inv(data_unit_base)
+
+        # Left-multiplication with inverse scale matrix yields the
+        # matrix transforming offset pixel coordinates into data units.
+        # "@" is the numpy matrix product operator.
+        self._px_to_data_m = inv_scale_m @ data_inv_base
+        # Also calculating inverse transformation matrix for backplotting
+        # interpolated values onto the pixel plane.
+        # Scale must be multiplied from the right-hand side.
+        self._data_to_px_m = data_unit_base @ scale_m
+
+        # Affine-linear coordinate transformation is now defined, trigger an
+        # update of all plot traces in case trace data is already available.
+        self.calculate_outputs()
+        self.redraw_ax_pts_px.emit()
+
+    @staticmethod
+    def _lines_intersection(line1_pts, line2_pts):
+        """Calculates intersection of two lines defined by two points each.
+
+        line1_pts, line2_pts: For each line, two points in rows of a 2D array
+        returns: intersection point, 1D array
+        """
+        x1, y1 = line1_pts[0] # Line 1, point 1
+        x2, y2 = line1_pts[1] # Line 1, point 2
+        x3, y3 = line2_pts[0] # Line 2, point 1
+        x4, y4 = line2_pts[1] # Line 2, point 2
+        # Explicit solution for intersection point of two non-parallel lines
+        # each defined by two points with coordinates (xi, yi).
+        denominator = (y4-y3)*(x2-x1) - (y2-y1)*(x4-x3)
+        num_xs = (x4-x3)*(x2*y1 - x1*y2) - (x2-x1)*(x4*y3 - x3*y4)
+        num_ys = (y1-y2)*(x4*y3 - x3*y4) - (y3-y4)*(x2*y1 - x1*y2)
+        return np.array((num_xs, num_ys)) / denominator
 
 
 class Trace(QObject):
@@ -349,35 +319,13 @@ class Trace(QObject):
         self.n_pts_interpolation = tr_conf.n_pts_interpolation
         # Data containers initial state, see below
         self._init_data()
-
         ########## Associated view objects
         # For raw pts
         self.pts_view_obj = None # Optional: pyplot.Line2D
         # For pts_i curve
         self.pts_i_view_obj = None
 
-
-    def _init_data(self):
-        # This is also called to clear existing traces
-        ########## Plot Data
-        # Data containers are np.ndarrays and initialised with zero length
-        # pts_px is array of image pixel coordinates, x and y in rows
-        self.pts_px = np.empty((0, 2))
-        # pts_lin is array of x,y-tuples of linear or linearised
-        # data coordinates. These are calculated by transformation
-        # of image pixel vector into data coordinate system.
-        # These are also used for the interactive plot.
-        self.pts_lin = np.empty((0, 2))
-        # pts_lin_i is array of x,y-tuples of the same graph
-        # with user-defined x grid. Y-values are interpolated.
-        self.pts_lin_i = np.empty((0, 2))
-        # pts and pts_i are final result to be output.
-        # For linear axes, these are copies of pts_lin and pts_lin_i.
-        # For log axes, the values are calculated.
-        self.pts = np.empty((0, 2))
-        self.pts_i = np.empty((0, 2))
-
-
+    ########## GUI and public part
     def clear_trace(self):
         """Clears this trace
         """
@@ -401,6 +349,81 @@ class Trace(QObject):
         self.pts_px = np.delete(self.pts_px, index, axis=0)
         # Trigger a full update of the model and view of inputs and outputs
         self.pts_added_deleted.emit()
+
+    ########## Model-specific implementation part
+    def _init_data(self):
+        ########## Plot Data
+        # Data containers are np.ndarrays and initialised with zero length
+        # pts_px is array of image pixel coordinates, x and y in rows
+        self.pts_px = np.empty((0, 2))
+        # pts_lin is array of x,y-tuples of linear or linearised
+        # data coordinates. These are calculated by transformation
+        # of image pixel vector into data coordinate system.
+        # These are also used for the interactive plot.
+        self.pts_lin = np.empty((0, 2))
+        # pts_lin_i is array of x,y-tuples of the same graph
+        # with user-defined x grid. Y-values are interpolated.
+        self.pts_lin_i = np.empty((0, 2))
+        # pts and pts_i are final result to be output.
+        # For linear axes, these are copies of pts_lin and pts_lin_i.
+        # For log axes, the values are calculated.
+        self.pts = np.empty((0, 2))
+        self.pts_i = np.empty((0, 2))
+
+    def _px_to_linear_data_coords(self, transform_matrix, origin_px) -> None:
+        """Transform image pixel coordinates to linear or
+        linearized (in case of log axes) data coordinate system.
+        """
+        # Offset raw points by pixel coordinate offset of data axes origin.
+        # pts_px is array of x, y in rows.
+        pts_shifted = self.pts_px - origin_px
+        # Transform into data coodinates using pre-calculated matrix.
+        # T is a property alias for the numpy.ndarray.transpose method.
+        self.pts_lin = (transform_matrix @ pts_shifted.T).T
+
+    def _sort_pts(self) -> None:
+        # Sort trace points along the first axis and
+        # remove duplicate rows.
+        #
+        # Because the orientation of the data coordinate system in pixel
+        # coordinates is also first known after transformation, the sort
+        # indices are also used to sort the input points in the same
+        # order as the output. That step is especially useful for plotting
+        # when points are added out-of-order.
+        self.pts_lin, unique_ids = np.unique(
+            self.pts_lin, axis=0, return_index=True)
+        self.pts_px = self.pts_px[unique_ids]
+
+    def _interpolate_cubic_splines(self) -> None:
+        # Acts on linear coordinates.
+        # Needs at least four data points for interpolation.
+        pts = self.pts_lin
+        if pts.shape[0] < 4:
+            return
+        # Scipy interpolate generates an interpolation function which is added
+        # to this instance attriutes
+        self.f_interp = interp1d(*pts.T, kind="cubic")
+        # Generate finer grid
+        xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_interpolation)
+        yvals = self.f_interp(xgrid)
+        self.pts_lin_i = np.concatenate(
+            (xgrid.reshape(-1,1), yvals.reshape(-1,1)), axis=1)
+
+    def _handle_log_scale(self, x_ax, y_ax) -> None:
+        # For log axes, the linearised coordinates are transformed
+        # back to original logarithmic axes scale. No action for lin axes.
+        #
+        # Make a copy to keep the original linearised coordinates
+        pts = self.pts_lin.copy()
+        pts_i = self.pts_lin_i.copy()
+        if x_ax.log_scale:
+            pts[:,0] = np.power(x_ax.log_base, pts[:,0])
+            pts_i[:,0] = np.power(x_ax.log_base, pts_i[:,0])
+        if y_ax.log_scale:
+            pts[:,1] = np.power(y_ax.log_base, pts[:,1])
+            pts_i[:,1] = np.power(y_ax.log_base, pts_i[:,1])
+        self.pts = pts
+        self.pts_i = pts_i
 
 
 class Axis(QObject):
