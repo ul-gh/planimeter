@@ -113,8 +113,7 @@ class DataModel(QObject):
 
     ########## GUI and Public part
     #FIXME:FIXME
-    def export_traces(*trace_nos, n=100, x_start: float, x_end: float) ->
-    np.ndarray:
+    def export_traces(*trace_nos, n=None, x_start=None, x_end=None):
         """Interpolate data from the given trace numbers using a common
         interpolation grid with n points, spaced evenly between x_start
         and x_end and return everything with axes and traces data in
