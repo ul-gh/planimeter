@@ -75,6 +75,11 @@ class DataModel(QObject):
         self.atol = conf.model_conf.atol
         # Store axes configuration persistently on disk when set
         self.store_ax_conf = conf.model_conf.store_ax_conf
+        # X-axis range used for exporting traces data
+        self.x_start_export = conf.model_conf.x_start_export
+        self.x_end_export = conf.model_conf.x_end_export
+        # Number of X-axis interpolation points for data export
+        self.n_pts_i_export = conf.model_conf.n_pts_i_export
 
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
@@ -112,15 +117,50 @@ class DataModel(QObject):
             self._calculate_coordinate_transformation()
 
     ########## GUI and Public part
-    #FIXME:FIXME
-    def export_traces(*trace_nos, n=None, x_start=None, x_end=None):
+    def export_traces(
+            self, *trace_nums, n_interp=None, x_start=None, x_end=None):
         """Interpolate data from the given trace numbers using a common
         interpolation grid with n points, spaced evenly between x_start
         and x_end and return everything with axes and traces data in
         columns of length n. First column: X-axis interpolation values.
+        
+        Parameters:
+        * trace_nums : int
+            One or more trace numbers (zero-indexed) used for export data
+        n_interp : int, optional
+            Number of evenly spaced interpolation points on the common X-axis
+        x_start : float, optional
+            Start of the data range on the X-axis used for export
+        x_end : float, optional
+            End of the data range on the X-axis used for export
+        
+        When number of points, start or end values are not specified,
+        instance data set by the GUI or from config file is used.
         """
-        n_pts = trace.n_pts_interpolation
-        self.x_grid_export = np.linspace(pts[0,0], pts[-1,0], num=n_pts)
+        if n_interp is None:
+            n_interp = self.n_pts_i_export
+        if x_start is None:
+            x_start = self.x_start_export
+        if x_end is None:
+            x_end = self.x_end_export
+
+        x_grid_export = np.linspace(x_start, x_end, num=n_interp)
+        
+        traces = [self.traces[i] for i in trace_nums]
+        
+        traces_output = np.array([tr.f_interp(x_grid_export) for tr in traces])
+        
+        pts = self.pts_lin
+        if pts.shape[0] < 4:
+            return
+        # Scipy interpolate generates an interpolation function which is added
+        # to this instance attriutes
+        self.f_interp = interp1d(*pts.T, kind="cubic")
+        # Generate finer grid
+        xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
+        yvals = self.f_interp(xgrid)
+        self.pts_lin_i = np.concatenate(
+            (xgrid.reshape(-1,1), yvals.reshape(-1,1)), axis=1)
 
     def axes_setup_is_complete(self) -> bool:
         """Returns True if axes configuration is all complete and valid
@@ -314,8 +354,8 @@ class Trace(QObject):
         # colors, thus using a copy from conf obj with updated color attribute.
         self.pts_fmt = dict(tr_conf.pts_fmt, **{"color": color})
         self.pts_i_fmt = {"color": color}
-        # Number of X-axis interpolation points for export and display
-        self.n_pts_interpolation = tr_conf.n_pts_interpolation
+        # Number of X-axis interpolation points for GUI display only
+        self.n_pts_i_view = tr_conf.n_pts_i_view
         # Data containers initial state, see below
         self._init_data()
         ########## Associated view objects
@@ -323,6 +363,9 @@ class Trace(QObject):
         self.pts_view_obj = None # Optional: pyplot.Line2D
         # For pts_i curve
         self.pts_i_view_obj = None
+        # Cubic spline interpolation function if available
+        self.f_interp = lambda x: raise ValueError(
+                f"{self.name}: No Data Available for this trace!")
 
     ########## GUI and public part
     def clear_trace(self):
@@ -403,7 +446,7 @@ class Trace(QObject):
         # to this instance attriutes
         self.f_interp = interp1d(*pts.T, kind="cubic")
         # Generate finer grid
-        xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_interpolation)
+        xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
         yvals = self.f_interp(xgrid)
         self.pts_lin_i = np.concatenate(
             (xgrid.reshape(-1,1), yvals.reshape(-1,1)), axis=1)
@@ -563,7 +606,8 @@ class Axis(QObject):
         # Model plus view update
         self.pts_added_deleted.emit()
 
-    def get_state(self):
+
+    def _get_state(self):
         """Returns the axis configuration attributes as a dictionary
         Used for persistent storage.
         """
