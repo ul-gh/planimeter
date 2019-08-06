@@ -9,6 +9,8 @@ import os
 import sys
 import pickle
 
+import numpy as np
+
 from PyQt5.QtCore import Qt, QDir, QSize, pyqtSlot
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (

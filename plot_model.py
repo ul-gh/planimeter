@@ -154,7 +154,7 @@ class DataModel(QObject):
             x_start = self.x_start_export
         if x_end is None:
             x_end = self.x_end_export
-        x_start = np.log(
+        #x_start = np.log(
         x_grid_export = np.linspace(x_start, x_end, num=n_interp)
         output_arr = np.empty((1+len(trace_nums), n_interp))
         output_arr[0] = (
@@ -224,7 +224,7 @@ class DataModel(QObject):
                 if sorting_needed:
                     tr._sort_pts()
                 # Anyways:
-                tr._interpolate_cubic_splines()
+                tr._interpolate_view_data()
         # Emit signals informing of updated trace data
         if trace_no is None:
             self.output_data_changed.emit()
@@ -291,7 +291,7 @@ class DataModel(QObject):
             )
         # Calculate intersection point of the possibly shifted data coordinate
         # axes.
-        ax_intersection = self._lines_intersection(x_ax_px, y_ax_px)
+        ax_intersection = self._lines_intersection(x_ax.pts_px, y_ax.pts_px)
 
         ######### Origin point of data coordinate system in pixel coordinates
         # This is later used for transforming all points
@@ -380,6 +380,8 @@ class Trace(QObject):
         self.pts_i_fmt = {"color": color}
         # Number of X-axis interpolation points for GUI display only
         self.n_pts_i_view = tr_conf.n_pts_i_view
+        # Kind of interpolation function used for GUI display
+        self.interp_type_view = tr_conf.interp_type_view
         # Plot data initial state, see below
         self._init_data()
         ########## Associated view objects
@@ -409,7 +411,7 @@ class Trace(QObject):
         self.pts_i = np.empty((0, 2))
         # This is overwritten with cubic spline polynomial function
         # representation of trace data when at least four data points
-        # are available and Trace._interpolate_cubic_splines is called.
+        # are available and Trace._interpolate_view_data is called.
         self.f_interp = lambda arr: np.full(arr.shape[0], NaN)
 
 
@@ -463,7 +465,7 @@ class Trace(QObject):
             self.pts_lin, axis=0, return_index=True)
         self.pts_px = self.pts_px[unique_ids]
 
-    def _interpolate_cubic_splines(self) -> None:
+    def _interpolate_view_data(self) -> None:
         # Acts on linear coordinates.
         # Needs at least four data points for interpolation.
         pts = self.pts_lin
@@ -471,7 +473,7 @@ class Trace(QObject):
             return
         # Scipy interpolate generates an interpolation function which is added
         # to this instance attriutes
-        self.f_interp = interp1d(*pts.T, kind="cubic")
+        self.f_interp = interp1d(*pts.T, kind=self.interp_type_view)
         # Generate finer grid
         xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
         yvals = self.f_interp(xgrid)
