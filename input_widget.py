@@ -7,7 +7,7 @@ License: GPL version 3
 """
 from functools import partial
 
-from numpy import isclose
+from numpy import isclose, isnan
 
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
@@ -33,7 +33,7 @@ class SciLineEdit(QLineEdit):
     valid_number_entered = pyqtSignal(float)
     def __init__(self, preset_value, placeholderText,
                  num_fmt=".6G", *args, **kwargs):
-        text = None if preset_value is None else f"{preset_value:{num_fmt}}"
+        text = None if isnan(preset_value) else f"{preset_value:{num_fmt}}"
         super().__init__(
             text, *args, placeholderText=placeholderText, **kwargs)
         v = QDoubleValidator(self, notation=QDoubleValidator.ScientificNotation)
