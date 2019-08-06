@@ -49,9 +49,7 @@ class DATA_MODEL():
 class TRACE():
     """Settings for any new plot trace
     """
-    # Default number of X axis points for data export
-    n_pts_i_export = 100
-    # Default number of X axis points for GUI display only
+    # Default number of X axis points for GUI display interpolation only
     n_pts_i_view = 100
     # Trace raw points format, same for all traces
     pts_fmt = {"picker": 10.0, "linestyle": ":",

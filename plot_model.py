@@ -102,11 +102,11 @@ class DataModel(QObject):
         for i, tr in enumerate(self.traces):
             # When points are moved, update outputs but no sorting is needed
             tr.pts_changed.connect(
-                partial(self.calculate_outputs, i, False))
+                partial(self.calculate_view_outputs, i, False))
             # When points are added or deleted, not only update outputs but
             # re-sort the points and update the view of the raw points
             tr.pts_added_deleted.connect(
-                partial(self.calculate_outputs, i, True))
+                partial(self.calculate_view_outputs, i, True))
             tr.pts_added_deleted.connect(
                 partial(self.redraw_tr_pts_px[int].emit, i))
             # The errors are also re-emitted.
@@ -116,19 +116,22 @@ class DataModel(QObject):
         if self.axes_setup_is_complete():
             self._calculate_coordinate_transformation()
 
-    ########## GUI and Public part
+    ########## GUI scope and public methods
     def export_traces(
             self, *trace_nums, n_interp=None, x_start=None, x_end=None):
         """Interpolate data from the given trace numbers using a common
-        interpolation grid with n points, spaced evenly between x_start
-        and x_end and return everything with axes and traces data in
-        columns of length n. First column: X-axis interpolation values.
+        interpolation grid with n_interp X-axis points, spaced evenly
+        in linearised data coordinate units between x_start and x_end
+        and return the resulting data as columns of length n_interp.
+        
+        First column: X-axis interpolation values.
         
         Parameters:
         * trace_nums : int
-            One or more trace numbers (zero-indexed) used for export data
+            One or more trace numbers (zero-indexed) for which to
+            interpolate and export data
         n_interp : int, optional
-            Number of evenly spaced interpolation points on the common X-axis
+            Number of interpolation points on the common X-axis
         x_start : float, optional
             Start of the data range on the X-axis used for export
         x_end : float, optional
@@ -136,6 +139,14 @@ class DataModel(QObject):
         
         When number of points, start or end values are not specified,
         instance data set by the GUI or from config file is used.
+
+        Note:
+        For generating the export data, the cubic spline interpolation
+        polynomial representation of each trace is used.
+        This function needs at least four data points from each trace.
+
+        If no interpolation data is available for a trace, a column of
+        NaN values is returned for that trace.
         """
         if n_interp is None:
             n_interp = self.n_pts_i_export
@@ -143,24 +154,23 @@ class DataModel(QObject):
             x_start = self.x_start_export
         if x_end is None:
             x_end = self.x_end_export
-
+        x_start = np.log(
         x_grid_export = np.linspace(x_start, x_end, num=n_interp)
-        
-        traces = [self.traces[i] for i in trace_nums]
-        
-        traces_output = np.array([tr.f_interp(x_grid_export) for tr in traces])
-        
-        pts = self.pts_lin
-        if pts.shape[0] < 4:
-            return
-        # Scipy interpolate generates an interpolation function which is added
-        # to this instance attriutes
-        self.f_interp = interp1d(*pts.T, kind="cubic")
-        # Generate finer grid
-        xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
-        yvals = self.f_interp(xgrid)
-        self.pts_lin_i = np.concatenate(
-            (xgrid.reshape(-1,1), yvals.reshape(-1,1)), axis=1)
+        output_arr = np.empty((1+len(trace_nums), n_interp))
+        output_arr[0] = (
+            np.power(x_ax.log_base, x_grid_export)
+            if x_ax.log_scale
+            else x_grid_export
+            )
+        for column, trace_no in enumerate(trace_nums, start=1):
+            tr = self.traces[trace_no]
+            output_arr[column] = (
+                np.power(y_ax.log_base, tr.f_interp(x_grid_export))
+                if y_ax.log_scale
+                else tr.f_interp(x_grid_export)
+                )
+        return output_arr.T
+
 
     def axes_setup_is_complete(self) -> bool:
         """Returns True if axes configuration is all complete and valid
@@ -195,7 +205,7 @@ class DataModel(QObject):
 
     @pyqtSlot()
     @pyqtSlot(int, bool)
-    def calculate_outputs(self, trace_no=None, sorting_needed=True) -> None:
+    def calculate_view_outputs(self, trace_no=None, sorting_needed=True):
         """Performs coordinate transformation, interpolation, curve fitting,
         integration and any additional transformations and calculations on the
         data model.
@@ -215,8 +225,6 @@ class DataModel(QObject):
                     tr._sort_pts()
                 # Anyways:
                 tr._interpolate_cubic_splines()
-                # Transform result data coordinates back to log scale if needed
-                tr._handle_log_scale(self.x_ax, self.y_ax)
         # Emit signals informing of updated trace data
         if trace_no is None:
             self.output_data_changed.emit()
@@ -245,38 +253,54 @@ class DataModel(QObject):
         # This can be called before all axes points have been set
         if not self.axes_setup_is_complete():
             return
-        # 2D arrays, x and y pixel coordinates are in rows
-        x_ax_px = self.x_ax.pts_px
-        y_ax_px = self.y_ax.pts_px
-        # For logarithmic axes, its values are linearised.
-        x_ax_data = (np.log(self.x_ax.pts_data) / np.log(self.x_ax.log_base)
-                     if self.x_ax.log_scale
-                     else np.array(self.x_ax.pts_data))
-        y_ax_data = (np.log(self.y_ax.pts_data) / np.log(self.y_ax.log_base)
-                     if self.y_ax.log_scale
-                     else np.array(self.y_ax.pts_data))
+        x_ax = self.x_ax
+        y_ax = self.y_ax
+        ########## Two points in pixel coordinates
+        # For each axis, ax_px_near is the pixel coordinates of the axis
+        # section point which is closer to the origin than ax_px_far
+        x_ax_px_near, x_ax_px_far = x_ax.pts_px
+        y_ax_px_near, y_ax_px_far = y_ax.pts_px
 
-        # Axes section vectors
-        x_ax_vect = x_ax_px[1] - x_ax_px[0]
-        y_ax_vect = y_ax_px[1] - y_ax_px[0]
+        ########## Two points in data coordinates
+        # For logarithmic axes, their values are linearised.
+        x_ax.pts_data_lin = (
+            np.log(x_ax.pts_data) / np.log(x_ax.log_base)
+            if x_ax.log_scale
+            else x_ax.pts_data
+            )
+        y_ax.pts_data_lin = (
+            np.log(y_ax.pts_data) / np.log(y_ax.log_base)
+            if y_ax.log_scale
+            else y_ax.pts_data
+            )
+        x_ax_data_near, x_ax_data_far = x_ax.pts_data_lin
+        y_ax_data_near, y_ax_data_far = y_ax.pts_data_lin
 
+        ########## Axes section vectors
+        x_ax_vect = x_ax_px_far - x_ax_px_near
+        y_ax_vect = y_ax_px_far - y_ax_px_near
+
+        ########## Each axis origin and axes intersection
         # Calculate data axes origin in pixel coordinates for both axes.
         # This is done by extrapolating axes sections down to zero value.
-        origin_xax = x_ax_px[0] - x_ax_vect * (
-            x_ax_data[0] / (x_ax_data[1] - x_ax_data[0])
+        origin_xax = x_ax_px_near - x_ax_vect * (
+            x_ax_data_near / (x_ax_data_far - x_ax_data_near)
             )
-        origin_yax = y_ax_px[0] - y_ax_vect * (
-            y_ax_data[0] / (y_ax_data[1] - y_ax_data[0])
+        origin_yax = y_ax_px_near - y_ax_vect * (
+                y_ax_data_near / (y_ax_data_far - y_ax_data_near)
             )
         # Calculate intersection point of the possibly shifted data coordinate
         # axes.
         ax_intersection = self._lines_intersection(x_ax_px, y_ax_px)
-        # Result data axes position is later used for transforming all points
+
+        ######### Origin point of data coordinate system in pixel coordinates
+        # This is later used for transforming all points
         self.origin_px = origin_yax + (origin_xax - ax_intersection)
         
+        ######### Coordinate transformation matrix
         # Scale factor between data axes values and length in pixel coordinates
-        x_scale = np.linalg.norm(x_ax_vect) / (x_ax_data[1] - x_ax_data[0]) 
-        y_scale = np.linalg.norm(y_ax_vect) / (y_ax_data[1] - y_ax_data[0])
+        x_scale = np.linalg.norm(x_ax_vect) / (x_ax_data_far - x_ax_data_near) 
+        y_scale = np.linalg.norm(y_ax_vect) / (y_ax_data_far - y_ax_data_near)
         # Matrix representation of scale
         scale_m = np.diag((x_scale, y_scale))
         # Inverse scale for opposite transformation direction
@@ -306,7 +330,7 @@ class DataModel(QObject):
 
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
-        self.calculate_outputs()
+        self.calculate_view_outputs()
         self.redraw_ax_pts_px.emit()
 
     @staticmethod
@@ -330,7 +354,7 @@ class DataModel(QObject):
 
 class Trace(QObject):
     """Data representing a single plot trace, including individual
-    configuration. Common configuration is stored in Axes instance.
+    configuration.
     """
     ########## Qt signals
     # This signal triggers an update of model output data and the associated
@@ -348,7 +372,7 @@ class Trace(QObject):
 
     def __init__(self, parent, tr_conf, name: str, color: str):
         super().__init__(parent)
-        ########## Data plot trace configuration
+        ########## Plot trace configuration
         self.name = name
         # Keyword options for plotting. The instances can have different
         # colors, thus using a copy from conf obj with updated color attribute.
@@ -356,18 +380,40 @@ class Trace(QObject):
         self.pts_i_fmt = {"color": color}
         # Number of X-axis interpolation points for GUI display only
         self.n_pts_i_view = tr_conf.n_pts_i_view
-        # Data containers initial state, see below
+        # Plot data initial state, see below
         self._init_data()
         ########## Associated view objects
         # For raw pts
         self.pts_view_obj = None # Optional: pyplot.Line2D
         # For pts_i curve
         self.pts_i_view_obj = None
-        # Cubic spline interpolation function if available
-        self.f_interp = lambda x: raise ValueError(
-                f"{self.name}: No Data Available for this trace!")
 
-    ########## GUI and public part
+    def _init_data(self):
+        ########## Plot data layout
+        # Data containers are numpy.ndarrays initialised with zero length.
+        #
+        # pts_px is array of image pixel coordinates with X and Y in rows
+        self.pts_px = np.empty((0, 2))
+        # pts_lin is array of x,y-tuples of linear or linearised
+        # data coordinates. These are calculated by transformation
+        # of image pixel vector into data coordinate system.
+        # These are also used for the interactive plot.
+        self.pts_lin = np.empty((0, 2))
+        # pts_lin_i is array of x,y-tuples of the same graph
+        # with user-defined x grid. Y-values are interpolated.
+        self.pts_lin_i = np.empty((0, 2))
+        # pts and pts_i are final result to be output.
+        # For linear axes, these are copies of pts_lin and pts_lin_i.
+        # For log axes, the values are calculated.
+        self.pts = np.empty((0, 2))
+        self.pts_i = np.empty((0, 2))
+        # This is overwritten with cubic spline polynomial function
+        # representation of trace data when at least four data points
+        # are available and Trace._interpolate_cubic_splines is called.
+        self.f_interp = lambda arr: np.full(arr.shape[0], NaN)
+
+
+    ########## GUI scope and public methods
     def clear_trace(self):
         """Clears this trace
         """
@@ -393,25 +439,6 @@ class Trace(QObject):
         self.pts_added_deleted.emit()
 
     ########## Model-specific implementation part
-    def _init_data(self):
-        ########## Plot Data
-        # Data containers are np.ndarrays and initialised with zero length
-        # pts_px is array of image pixel coordinates, x and y in rows
-        self.pts_px = np.empty((0, 2))
-        # pts_lin is array of x,y-tuples of linear or linearised
-        # data coordinates. These are calculated by transformation
-        # of image pixel vector into data coordinate system.
-        # These are also used for the interactive plot.
-        self.pts_lin = np.empty((0, 2))
-        # pts_lin_i is array of x,y-tuples of the same graph
-        # with user-defined x grid. Y-values are interpolated.
-        self.pts_lin_i = np.empty((0, 2))
-        # pts and pts_i are final result to be output.
-        # For linear axes, these are copies of pts_lin and pts_lin_i.
-        # For log axes, the values are calculated.
-        self.pts = np.empty((0, 2))
-        self.pts_i = np.empty((0, 2))
-
     def _px_to_linear_data_coords(self, transform_matrix, origin_px) -> None:
         """Transform image pixel coordinates to linear or
         linearized (in case of log axes) data coordinate system.
@@ -451,6 +478,8 @@ class Trace(QObject):
         self.pts_lin_i = np.concatenate(
             (xgrid.reshape(-1,1), yvals.reshape(-1,1)), axis=1)
 
+
+    # FIXME: This is only necessary for generating export data
     def _handle_log_scale(self, x_ax, y_ax) -> None:
         # For log axes, the linearised coordinates are transformed
         # back to original logarithmic axes scale. No action for lin axes.
@@ -502,8 +531,10 @@ class Axis(QObject):
         ########## Axis data
         # Two points defining an axis section in pixel coordinate space
         self.pts_px = np.full((2, 2), NaN)
-        # Axes section values in data space
-        self.pts_data = [0.0, None] # Optional: [Float, Float]
+        # Axis section values in data coordinates
+        self.pts_data = np.array((NaN, NaN))
+        # Axis section values, linearised in case of log scale, copy otherwise
+        self.pts_data_lin = np.array((NaN, NaN))
 
         ########## Associated view object
         self.pts_view_obj = None # Optional: pyplot.Line2D
@@ -518,7 +549,7 @@ class Axis(QObject):
             self.value_error.emit("X axis values must be numerically different")
         else:
             self.pts_data[0] = value
-        # Updates input widget, model and outputs
+        # Updates input widget, model, outputs and also sets self.pts_data_lin
         self.config_changed.emit()
 
     @pyqtSlot(float)
@@ -530,7 +561,7 @@ class Axis(QObject):
             self.value_error.emit("X axis values must be numerically different")
         else:
             self.pts_data[1] = value
-        # Updates input widget, model and outputs
+        # Updates input widget, model, outputs and also sets self.pts_data_lin
         self.config_changed.emit()
 
     @pyqtSlot(bool)
@@ -541,7 +572,7 @@ class Axis(QObject):
             log_scale = False
             self.value_error.emit("X axis values must not be zero for log axes")
         self.log_scale = log_scale
-        # Updates input widget, model and outputs
+        # Updates input widget, model, outputs and also sets self.pts_data_lin
         self.config_changed.emit()
 
     def add_pt_px(self, xydata):
