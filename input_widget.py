@@ -12,8 +12,8 @@ from numpy import isclose, isnan
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 from PyQt5.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QMessageBox, QComboBox,
-        QGroupBox, QLabel, QPushButton, QRadioButton, QCheckBox,
+        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QMessageBox,
+        QGroupBox, QLabel, QPushButton, QRadioButton, QCheckBox, QComboBox,
         )
 
 class NumberedButton(QPushButton):
