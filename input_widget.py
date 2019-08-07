@@ -12,7 +12,7 @@ from numpy import isclose, isnan
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 from PyQt5.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QMessageBox,
+        QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QMessageBox, QComboBox,
         QGroupBox, QLabel, QPushButton, QRadioButton, QCheckBox,
         )
 
@@ -113,6 +113,26 @@ class InputWidget(QWidget):
         
         # Dummy button acting as focus stealer for default mode
         self.btn_default = QPushButton("Drag-Drop\nMode", self)
+
+        # Data Export options
+        self.export_opts = QWidget()
+        ###
+        self.n_interp_box = QComboBox(self)
+        n_interp_presets_text = ["10", "25", "50", "100", "250", "500", "1000"]
+        n_interp_presets_values = [10, 25, 50, 100, 250, 500, 1000]
+        for text, value in zip(n_interp_presets_text, n_interp_presets_values):
+            self.n_interp_box.addItem(text, userData=value)
+        ###
+        self.interp_type_box = QComboBox(self)
+        interp_types_text = ["Linear", "Cubic", "Sin(x)/x"]
+        interp_types_values = ["linear", "cubic", "sinc"]
+        for text, value in zip(interp_types_text, interp_types_values):
+            self.interp_type_box.addItem(text, userData=value)
+
+        layout_export_opts = QVBoxLayout(self)
+        layout_export_opts.addWidget(self.n_interp_box)
+        layout_export_opts.addWidget(self.interp_type_box)
+        self.export_opts.setLayout(layout_export_opts)
         
         # This is all input boxes plus label
         hbox = QHBoxLayout(self)
@@ -126,6 +146,7 @@ class InputWidget(QWidget):
             #self.button_group.addButton(i)
             hbox.addWidget(i)
         hbox.addWidget(self.btn_default)
+        hbox.addWidget(self.export_opts)
         self.setLayout(hbox)
 
         ########## Initialise view from model

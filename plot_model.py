@@ -117,8 +117,8 @@ class DataModel(QObject):
             self._calculate_coordinate_transformation()
 
     ########## GUI scope and public methods
-    def export_traces(
-            self, *trace_nums, n_interp=None, x_start=None, x_end=None):
+    def export_traces(self, *trace_nums, n_interp=None, x_start=None,
+                      x_end=None):
         """Interpolate data from the given trace numbers using a common
         interpolation grid with n_interp X-axis points, spaced evenly
         in linearised data coordinate units between x_start and x_end
@@ -381,7 +381,7 @@ class Trace(QObject):
         # Number of X-axis interpolation points for GUI display only
         self.n_pts_i_view = tr_conf.n_pts_i_view
         # Kind of interpolation function used for GUI display
-        self.interp_type_view = tr_conf.interp_type_view
+        self.interp_type = tr_conf.interp_type
         # Plot data initial state, see below
         self._init_data()
         ########## Associated view objects
@@ -473,7 +473,7 @@ class Trace(QObject):
             return
         # Scipy interpolate generates an interpolation function which is added
         # to this instance attriutes
-        self.f_interp = interp1d(*pts.T, kind=self.interp_type_view)
+        self.f_interp = interp1d(*pts.T, kind=self.interp_type)
         # Generate finer grid
         xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
         yvals = self.f_interp(xgrid)

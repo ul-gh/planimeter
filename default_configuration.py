@@ -51,8 +51,8 @@ class TRACE():
     """
     # Default number of X axis points for GUI display interpolation only
     n_pts_i_view = 100
-    # Kind of interpolation function used for GUI display
-    interp_type_view = "cubic"
+    # Kind of interpolation function used for a new trace by default
+    interp_type = "cubic"
     # Trace raw points format, same for all traces
     pts_fmt = {"picker": 10.0, "linestyle": ":",
                "marker": "x", "markersize": 10.0}
