@@ -12,13 +12,14 @@ import numpy as np
 from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout,  QSplitter, QPlainTextEdit,
-        QMessageBox,
+        QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+        QSplitter, QPlainTextEdit, QMessageBox, QTableWidget, QTableWidgetItem,
         )
 
 from mpl_widget import MplWidget
 from input_widget import InputWidget
 from plot_model import DataModel
+from upylib.PyQt5_Console_Widget_Demo import ConsoleWidget
 
 
 class Digitizer(QWidget):
@@ -56,7 +57,18 @@ class Digitizer(QWidget):
         # Text widget
         self.txtw = QPlainTextEdit()
         self.txtw.insertPlainText("Clipboard Copy and Paste.")
-        self.txtw.setFixedHeight(25)
+        #self.txtw.setFixedWidth(80)
+
+        # Jupyter Console widget
+        self.console = ConsoleWidget(parent=self)
+
+        # Traces properties are displayed in a QTableWidget
+        self.traces_table = QTableWidget(5, 5, self)
+        headers = ["Name", "Export", "Common X", "i_type", "n_pts_i"]
+        self.traces_table.setHorizontalHeaderLabels(headers)
+        for row, tr in enumerate(model.traces):
+            it = QTableWidgetItem(tr.name)
+            self.traces_table.setItem(row, 0, it)
         
         # Push buttons and axis value input fields widget.
         self.inputw = InputWidget(self, model)
@@ -66,15 +78,32 @@ class Digitizer(QWidget):
         self.mplw = MplWidget(self, model, conf)
         mplw = self.mplw
        
-        # Layout is vertical widgets, divided by a splitter
-        self.splitter = QSplitter(Qt.Vertical, self)
-        self.splitter.setChildrenCollapsible(False)
-        self.splitter.addWidget(self.txtw)
-        self.splitter.addWidget(inputw)
-        self.splitter.addWidget(mplw)
-        vbox = QVBoxLayout(self)
-        vbox.addWidget(self.splitter)
-        self.setLayout(vbox)
+
+        # Layout is two columns of widgets, right is data output and console,
+        # left is inputwidget and mpl_widget
+        hsplitter = QSplitter(Qt.Horizontal, self)
+        hsplitter.setChildrenCollapsible(False)
+        layout = QHBoxLayout(self)
+        layout.addWidget(hsplitter)
+        self.setLayout(layout)
+
+        # Left side layout is vertical widgets, divided by a splitter
+        self.mplw_splitter = QSplitter(Qt.Vertical, self)
+        self.mplw_splitter.setChildrenCollapsible(False)
+        self.mplw_splitter.addWidget(inputw)
+        self.mplw_splitter.addWidget(mplw)
+
+        # Right side layout just the same
+        io_splitter = QSplitter(Qt.Vertical, self)
+        io_splitter.setChildrenCollapsible(False)
+        io_splitter.addWidget(self.traces_table)
+        io_splitter.addWidget(self.console)
+        #io_splitter.addWidget(self.txtw)
+
+        # All combined
+        hsplitter.addWidget(self.mplw_splitter)
+        io_splitter.setChildrenCollapsible(False)
+        hsplitter.addWidget(io_splitter)
 
         ########## Set up all widgets public signals for interactive GUI
         ##### Connect model state changes to the GUI widgets
@@ -97,8 +126,8 @@ class Digitizer(QWidget):
 
         ##### Matplotlib widget state is displayed on the input widget
         # Matplotlib widget signals a complete axis setup
-        mplw.valid_x_axis_setup.connect(inputw.set_green_btn_pick_x)
-        mplw.valid_y_axis_setup.connect(inputw.set_green_btn_pick_y)
+        mplw.valid_x_axis_setup.connect(inputw.btn_pick_x.set_green)
+        mplw.valid_y_axis_setup.connect(inputw.btn_pick_y.set_green)
         # This checks or unchecks the input widget buttons to reflect the
         # corresponding matplotlib widget current operating mode
         mplw.mode_sw_default.connect(inputw.uncheck_all_buttons)
@@ -127,7 +156,7 @@ class Digitizer(QWidget):
         inputw.yendw.valid_number_entered.connect(model.y_ax.set_ax_end)
 
         # When the splitter is clicked, release the fixed height constraint
-        self.splitter.splitterMoved.connect(
+        self.mplw_splitter.splitterMoved.connect(
             partial(self.txtw.setMaximumHeight, 10000))
         # Update source input image for digitizing. Argument is file path.
         self.load_image.connect(mplw.load_image)

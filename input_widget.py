@@ -9,14 +9,31 @@ from functools import partial
 
 from numpy import isclose, isnan
 
-from PyQt5.QtCore import pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QMessageBox,
         QGroupBox, QLabel, QPushButton, QRadioButton, QCheckBox, QComboBox,
         )
 
-class NumberedButton(QPushButton):
+class StyledButton(QPushButton):
+    """This checkable button has a minimum size set to the initial
+    text contents requirements and can be used as a state indicator by
+    connecting the set_green slot.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setCheckable(True)
+        size_ref_text = "A" + self.text() + "A"
+        min_size = self.fontMetrics().size(Qt.TextShowMnemonic, size_ref_text)
+        self.setMinimumSize(min_size)
+
+    @pyqtSlot(bool)
+    def set_green(self, state):
+        style = "background-color: Palegreen" if state else ""
+        self.setStyleSheet(style)
+
+class NumberedButton(StyledButton):
     """This subclass of QPushButton adds a number index property and
     emits a corresponding integer signal
     """
@@ -56,13 +73,12 @@ class InputWidget(QWidget):
         self.y_ax = model.y_ax
 
         # Qt widget setup
-        self.setFixedHeight(70)
+        #self.setFixedHeight(70)
         # Error message box used in set_prop()
         self.messagebox = QMessageBox(self)
         
         # X Coordinate picker and input boxes
-        self.btn_pick_x = QPushButton(
-                "Pick X-axis\nCoords", self, checkable=True)
+        self.btn_pick_x = StyledButton("Pick X-axis\nCoords", self)
         self.btn_pick_x.setAutoExclusive(True)
         hbox = QHBoxLayout(self)
         self.xstartw = SciLineEdit(
@@ -82,8 +98,7 @@ class InputWidget(QWidget):
         self.group_x.setLayout(hbox)
         
         # Y Coordinate picker and input boxes
-        self.btn_pick_y = QPushButton(
-            "Pick Y-axis\nCoords", self, checkable=True)
+        self.btn_pick_y = StyledButton("Pick Y-axis\nCoords", self)
         self.btn_pick_y.setAutoExclusive(True)
         hbox = QHBoxLayout(self)
         self.ystartw = SciLineEdit(self.y_ax.pts_data[0], "Y Axis Start Value")
@@ -106,33 +121,25 @@ class InputWidget(QWidget):
 
         # Pick traces buttons
         self.btns_pick_trace = (
-                NumberedButton(0, "Pick\nTrace 1", self, checkable=True),
-                NumberedButton(1, "Pick\nTrace 2", self, checkable=True),
-                NumberedButton(2, "Pick\nTrace 3", self, checkable=True),
+                NumberedButton(0, "Pick\nTrace 1", self),
+                NumberedButton(1, "Pick\nTrace 2", self),
+                NumberedButton(2, "Pick\nTrace 3", self),
                 )
         
-        # Dummy button acting as focus stealer for default mode
-        self.btn_default = QPushButton("Drag-Drop\nMode", self)
+        # Export Data button
+        self.btn_export = StyledButton("Export\nData", self)
 
         # Data Export options
-        self.export_opts = QWidget()
         ###
         self.n_interp_box = QComboBox(self)
         n_interp_presets_text = ["10", "25", "50", "100", "250", "500", "1000"]
         n_interp_presets_values = [10, 25, 50, 100, 250, 500, 1000]
-        for text, value in zip(n_interp_presets_text, n_interp_presets_values):
-            self.n_interp_box.addItem(text, userData=value)
+        self.n_interp_box.addItems(n_interp_presets_text)
         ###
         self.interp_type_box = QComboBox(self)
         interp_types_text = ["Linear", "Cubic", "Sin(x)/x"]
         interp_types_values = ["linear", "cubic", "sinc"]
-        for text, value in zip(interp_types_text, interp_types_values):
-            self.interp_type_box.addItem(text, userData=value)
-
-        layout_export_opts = QVBoxLayout(self)
-        layout_export_opts.addWidget(self.n_interp_box)
-        layout_export_opts.addWidget(self.interp_type_box)
-        self.export_opts.setLayout(layout_export_opts)
+        self.interp_type_box.addItems(interp_types_text)
         
         # This is all input boxes plus label
         hbox = QHBoxLayout(self)
@@ -145,8 +152,9 @@ class InputWidget(QWidget):
             i.setAutoExclusive(True)
             #self.button_group.addButton(i)
             hbox.addWidget(i)
-        hbox.addWidget(self.btn_default)
-        hbox.addWidget(self.export_opts)
+        hbox.addWidget(self.btn_export)
+        hbox.addWidget(self.n_interp_box)
+        hbox.addWidget(self.interp_type_box)
         self.setLayout(hbox)
 
         ########## Initialise view from model
@@ -193,15 +201,6 @@ class InputWidget(QWidget):
         style = "QLineEdit { background-color: Palegreen; }" if state else ""
         self.group_y.setStyleSheet(style)
 
-    @pyqtSlot(bool)
-    def set_green_btn_pick_x(self, state):
-        style = "background-color: Palegreen" if state else ""
-        self.btn_pick_x.setStyleSheet(style)
-
-    @pyqtSlot(bool)
-    def set_green_btn_pick_y(self, state):
-        style = "background-color: Palegreen" if state else ""
-        self.btn_pick_y.setStyleSheet(style)
     
     @pyqtSlot()
     def uncheck_all_buttons(self):
@@ -210,5 +209,5 @@ class InputWidget(QWidget):
         for i in self.btns_pick_trace:
             i.setChecked(False)
         # Set focus to the default in order to unfocus all other buttons
-        self.btn_default.setFocus()
+        self.btn_export.setFocus()
 

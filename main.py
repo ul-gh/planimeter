@@ -178,7 +178,7 @@ if __name__ == "__main__":
     mainw.activateWindow()
     
     # IPython integration via IPython Qt5 event loop
-    ipython_pyqt_boilerplate(app)
+    #ipython_pyqt_boilerplate(app)
 
     # Set up some shortcuts for command line interactive use.
     ax = mainw.cw.mplw.mpl_ax
@@ -190,4 +190,6 @@ if __name__ == "__main__":
     traces = model.traces
     tr1, tr2, tr3 = model.traces[0:3]
 
+    mainw.cw.console.push_vars(locals())
+    app.exec_()
 
