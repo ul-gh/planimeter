@@ -78,40 +78,42 @@ class InputWidget(QWidget):
         self.messagebox = QMessageBox(self)
         
         # X Coordinate picker and input boxes
-        self.btn_pick_x = StyledButton("Pick X-axis\nCoords", self)
+        self.btn_pick_x = StyledButton("Pick Points", self)
         self.btn_pick_x.setAutoExclusive(True)
-        hbox = QHBoxLayout(self)
         self.xstartw = SciLineEdit(
             self.x_ax.pts_data[0], "X Axis Start Value", model.num_fmt)
         self.xendw = SciLineEdit(
             self.x_ax.pts_data[1], "X Axis End Value", model.num_fmt)
-        hbox.addWidget(self.xstartw)
-        hbox.addWidget(self.xendw)
         # Lin/log buttons
         self.btn_lin_x = QRadioButton("Lin")
         self.btn_log_x = QRadioButton("Log")
         self.btn_lin_x.setChecked(not self.x_ax.log_scale)
         self.btn_log_x.setChecked(self.x_ax.log_scale)
+        hbox = QHBoxLayout(self)
+        hbox.addWidget(self.xstartw)
+        hbox.addWidget(self.xendw)
         hbox.addWidget(self.btn_lin_x)
         hbox.addWidget(self.btn_log_x)
+        hbox.addWidget(self.btn_pick_x)
         self.group_x = QGroupBox("Enter X Axis Start and End Values")
         self.group_x.setLayout(hbox)
         
         # Y Coordinate picker and input boxes
-        self.btn_pick_y = StyledButton("Pick Y-axis\nCoords", self)
+        self.btn_pick_y = StyledButton("Pick Points", self)
         self.btn_pick_y.setAutoExclusive(True)
-        hbox = QHBoxLayout(self)
         self.ystartw = SciLineEdit(self.y_ax.pts_data[0], "Y Axis Start Value")
         self.yendw = SciLineEdit(self.y_ax.pts_data[1], "Y Axis End Value")
-        hbox.addWidget(self.ystartw)
-        hbox.addWidget(self.yendw)
         # Lin/log buttons
         self.btn_lin_y = QRadioButton("Lin")
         self.btn_log_y = QRadioButton("Log")
         self.btn_log_y.setChecked(self.y_ax.log_scale)
         self.btn_lin_y.setChecked(not self.y_ax.log_scale)
+        hbox = QHBoxLayout(self)
+        hbox.addWidget(self.ystartw)
+        hbox.addWidget(self.yendw)
         hbox.addWidget(self.btn_lin_y)
         hbox.addWidget(self.btn_log_y)
+        hbox.addWidget(self.btn_pick_y)
         self.group_y = QGroupBox("Enter Y Axis Start and End Values")
         self.group_y.setLayout(hbox)
 
@@ -143,9 +145,7 @@ class InputWidget(QWidget):
         
         # This is all input boxes plus label
         hbox = QHBoxLayout(self)
-        hbox.addWidget(self.btn_pick_x)
         hbox.addWidget(self.group_x)
-        hbox.addWidget(self.btn_pick_y)
         hbox.addWidget(self.group_y)
         hbox.addWidget(self.btn_store_config)
         for i in self.btns_pick_trace:
