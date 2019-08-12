@@ -11,48 +11,6 @@ from qtconsole.client import QtKernelClient
 from qtconsole.qt import QtGui
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 
-def _run_embedded_qtconsole(conn_filename):
-    # This is launched as a new process.
-    #
-    # Wait max. ten seconds for the IPython kernel to be up and running,
-    # which is done by checking for presence of the connection file
-    # containing the kernels Zero Message Queue sockets and credentials.
-    #
-    # Then, start a new QApplication running the Jupyter Console client
-    # widget connected to the kernel via the connection file.
-    for i in range(100):
-        try:
-            st = os.stat(conn_filename)
-        except OSError as e:
-            if e.errno != errno.ENOENT:
-                # No such file exception is ignored, all others re-raised
-                raise
-        else:
-            if st.st_size > 0:
-                # OK, connection file found, kernel seems to be running
-                break
-        time.sleep(0.1)
-
-    app = QtGui.QApplication([])
-
-    kernel_client = QtKernelClient(connection_file=conn_filename)
-    kernel_client.load_connection_file()
-    kernel_client.start_channels()
-
-    def exit():
-        # FIXME: tell the kernel to shutdown
-        kernel_client.shutdown()
-        kernel_client.stop_channels()
-        app.exit()
-
-    ipython_widget = RichJupyterWidget()
-    ipython_widget.kernel_client = kernel_client
-    ipython_widget.exit_requested.connect(exit)
-    ipython_widget.show()
-
-    app.exec_()
-
-
 class EmbeddedIPythonKernel():
     def __init__(self, export_namespace, **kwargs):
         self.conn_filename = os.path.join(
@@ -86,10 +44,51 @@ class EmbeddedIPythonKernel():
 
     def _launch_console_process(self):
         console_process = multiprocessing.Process(
-            target=_run_embedded_qtconsole,
+            target=self._run_embedded_qtconsole,
             args=(self.conn_filename,),
             )
         console_process.start()
         return console_process
 
+    @staticmethod
+    def _run_embedded_qtconsole(conn_filename):
+        # This is launched as a new process.
+        #
+        # Wait max. ten seconds for the IPython kernel to be up and running,
+        # which is done by checking for presence of the connection file
+        # containing the kernels Zero Message Queue sockets and credentials.
+        #
+        # Then, start a new QApplication running the Jupyter Console client
+        # widget connected to the kernel via the connection file.
+        for i in range(100):
+            try:
+                st = os.stat(conn_filename)
+            except OSError as e:
+                if e.errno != errno.ENOENT:
+                    # No such file exception is ignored, all others re-raised
+                    raise
+            else:
+                if st.st_size > 0:
+                    # OK, connection file found, kernel seems to be running
+                    break
+            time.sleep(0.1)
+
+        app = QtGui.QApplication([])
+
+        kernel_client = QtKernelClient(connection_file=conn_filename)
+        kernel_client.load_connection_file()
+        kernel_client.start_channels()
+
+        def exit():
+            # FIXME: tell the kernel to shutdown
+            kernel_client.shutdown()
+            kernel_client.stop_channels()
+            app.exit()
+
+        ipython_widget = RichJupyterWidget()
+        ipython_widget.kernel_client = kernel_client
+        ipython_widget.exit_requested.connect(exit)
+        ipython_widget.show()
+
+        app.exec_()
 
