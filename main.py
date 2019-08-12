@@ -25,7 +25,6 @@ from upylib.pyqt_debug import patch_pyqt_event_exception_hook
 from digitizer import Digitizer
 from default_configuration import APPLICATION, DATA_MODEL, TRACE, X_AXIS, Y_AXIS
 
-
 class RuntimeConfig():
     """Modified configuration settings and application state can be written to
     file for persistent storage
@@ -167,7 +166,8 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     # When run interactively in IPython shell, app instance might already exist
-    if "app" not in globals() or not isinstance(app, QApplication):
+    app = QApplication.instance()
+    if app is None:
         app = QApplication(sys.argv)
 
     # Debug: Enable display of exceptions occurring in pyqtSlots:
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     mainw.activateWindow()
     
     # IPython integration via IPython Qt5 event loop
-    #ipython_pyqt_boilerplate(app)
+    ipython_pyqt_boilerplate(app)
 
     # Set up some shortcuts for command line interactive use.
     ax = mainw.cw.mplw.mpl_ax
@@ -190,6 +190,5 @@ if __name__ == "__main__":
     traces = model.traces
     tr1, tr2, tr3 = model.traces[0:3]
 
-    mainw.cw.console.push_vars(locals())
-    app.exec_()
+    # mainw.cw.console.push_vars(locals())
 

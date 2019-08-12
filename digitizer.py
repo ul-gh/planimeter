@@ -14,12 +14,14 @@ from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
         QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QSplitter, QPlainTextEdit, QMessageBox, QTableWidget, QTableWidgetItem,
+        QPushButton,
         )
 
 from mpl_widget import MplWidget
 from input_widget import InputWidget
+from jupyter_console import ConsoleWidget
 from plot_model import DataModel
-from upylib.PyQt5_Console_Widget_Demo import ConsoleWidget
+from embedded_ipython import EmbeddedIPythonKernel
 
 
 class Digitizer(QWidget):
@@ -59,8 +61,10 @@ class Digitizer(QWidget):
         self.txtw.insertPlainText("Clipboard Copy and Paste.")
         #self.txtw.setFixedWidth(80)
 
-        # Jupyter Console widget
-        self.console = ConsoleWidget(parent=self)
+        # Jupyter Console widget and button
+        self.ipyconsole = EmbeddedIPythonKernel(locals(), gui="qt5")
+        self.btn_console = QPushButton(
+            "Launch Jupyter Console\nIn Data Namespace", self)
 
         # Traces properties are displayed in a QTableWidget
         self.traces_table = QTableWidget(5, 5, self)
@@ -97,7 +101,7 @@ class Digitizer(QWidget):
         io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
         io_splitter.addWidget(self.traces_table)
-        io_splitter.addWidget(self.console)
+        io_splitter.addWidget(self.btn_console)
         #io_splitter.addWidget(self.txtw)
 
         # All combined
@@ -162,6 +166,9 @@ class Digitizer(QWidget):
         self.load_image.connect(mplw.load_image)
         # Clipboard handling
         #self.clipboard.dataChanged.connect(self.clipboardChanged)
+
+        # Embedded Jupyter Console Button
+        self.btn_console.clicked.connect(self.ipyconsole.embed_jupyter_console)
 
 
     def array2html(self, array, decimal_chr, num_fmt):
