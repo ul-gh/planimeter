@@ -20,7 +20,6 @@ from PyQt5.QtWidgets import (
 from mpl_widget import MplWidget
 from input_widget import InputWidget
 from plot_model import DataModel
-from embedded_ipython import EmbeddedIPythonKernel
 
 
 class Digitizer(QWidget):
@@ -59,8 +58,7 @@ class Digitizer(QWidget):
         self.txtw.insertPlainText("Clipboard Copy and Paste.")
         #self.txtw.setFixedWidth(80)
 
-        # Jupyter Console widget and button
-        self.ipyconsole = EmbeddedIPythonKernel(locals(), gui="qt5")
+
         #self.ipyconsole = EmbeddedIPythonKernel(locals())
         self.btn_console = QPushButton(
             "Launch Jupyter Console\nIn Data Namespace", self)
@@ -166,8 +164,6 @@ class Digitizer(QWidget):
         # Clipboard handling
         #self.clipboard.dataChanged.connect(self.clipboardChanged)
 
-        # Embedded Jupyter Console Button
-        self.btn_console.clicked.connect(self.ipyconsole.embed_jupyter_console)
 
 
     def array2html(self, array, decimal_chr, num_fmt):
