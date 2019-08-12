@@ -19,7 +19,6 @@ from PyQt5.QtWidgets import (
 
 from mpl_widget import MplWidget
 from input_widget import InputWidget
-from jupyter_console import ConsoleWidget
 from plot_model import DataModel
 from embedded_ipython import EmbeddedIPythonKernel
 
@@ -50,8 +49,7 @@ class Digitizer(QWidget):
         self.clipboard = QApplication.instance().clipboard()
 
         # Plot interactive data model
-        self.model = DataModel(self, conf)
-        model = self.model
+        self.model = model = DataModel(self, conf)
 
         # General text or warning message
         self.messagebox = QMessageBox(self)
@@ -63,6 +61,7 @@ class Digitizer(QWidget):
 
         # Jupyter Console widget and button
         self.ipyconsole = EmbeddedIPythonKernel(locals(), gui="qt5")
+        #self.ipyconsole = EmbeddedIPythonKernel(locals())
         self.btn_console = QPushButton(
             "Launch Jupyter Console\nIn Data Namespace", self)
 

@@ -29,7 +29,7 @@ class EmbeddedIPythonKernel():
             console_process.join()
         finally:
             try:
-                os.remove(conn_filename)
+                os.remove(self.conn_filename)
             except OSError as e:
                 if e.errno != errno.ENOENT:
                     raise
@@ -73,7 +73,7 @@ class EmbeddedIPythonKernel():
                     break
             time.sleep(0.1)
 
-        app = QtGui.QApplication([])
+        app = QtGui.QApplication(["Plot Workbench Console"])
 
         kernel_client = QtKernelClient(connection_file=conn_filename)
         kernel_client.load_connection_file()
