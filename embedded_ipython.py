@@ -8,47 +8,52 @@ import multiprocessing
 import IPython
 
 from qtconsole.client import QtKernelClient
-from qtconsole.qt import QtGui
+from qtconsole.qt import QtGui, QtCore
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
+# from PyQt5.QtWidgets import QApplication
 
-class EmbeddedIPythonKernel():
-    def __init__(self, export_namespace, **kwargs):
+class EmbeddedIPythonKernel(QtCore.QObject):
+    quit_application = QtCore.pyqtSignal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
         self.conn_filename = os.path.join(
             tempfile.gettempdir(),
             f"connection-{os.getpid():d}.json"
             )
-        self.export_namespace = export_namespace
-        self.kwargs = kwargs
+        # New process must not be forked as it would then inherit some
+        # QApplication state
+        multiprocessing.set_start_method("spawn")
+        self.console_process = None
 
-    def embed_jupyter_console(self):
+
+    def start_ipython_kernel(self, namespace, **kwargs):
         try:
-            console_process = self._launch_console_process()
             # This is a blocking call
-            self._embed_kernel()
-            # When the kernel has died, terminate the console
-            console_process.join()
+            IPython.embed_kernel(
+                local_ns=namespace,
+                connection_file=self.conn_filename,
+                **kwargs,
+                )
         finally:
             try:
                 os.remove(self.conn_filename)
             except OSError as e:
                 if e.errno != errno.ENOENT:
                     raise
+        # When the kernel is terminated, close a possibly running client
+        # process and terminate application
+        if self.console_process is not None:
+            self.console_process.join()
+        self.quit_application.emit()
 
 
-    def _embed_kernel(self):
-        IPython.embed_kernel(
-            local_ns=self.export_namespace,
-            connection_file=self.conn_filename,
-            **self.kwargs,
-            )
-
-    def _launch_console_process(self):
-        console_process = multiprocessing.Process(
+    def launch_jupyter_console_process(self):
+        self.console_process = multiprocessing.Process(
             target=self._run_embedded_qtconsole,
             args=(self.conn_filename,),
             )
-        console_process.start()
-        return console_process
+        self.console_process.start()
 
     @staticmethod
     def _run_embedded_qtconsole(conn_filename):
@@ -60,6 +65,7 @@ class EmbeddedIPythonKernel():
         #
         # Then, start a new QApplication running the Jupyter Console client
         # widget connected to the kernel via the connection file.
+        # 
         for i in range(100):
             try:
                 st = os.stat(conn_filename)
@@ -74,6 +80,7 @@ class EmbeddedIPythonKernel():
             time.sleep(0.1)
 
         app = QtGui.QApplication(["Plot Workbench Console"])
+        # app = QApplication(["Plot Workbench Console"])
 
         kernel_client = QtKernelClient(connection_file=conn_filename)
         kernel_client.load_connection_file()

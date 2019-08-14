@@ -25,6 +25,8 @@ from upylib.pyqt_debug import patch_pyqt_event_exception_hook
 from digitizer import Digitizer
 from default_configuration import APPLICATION, DATA_MODEL, TRACE, X_AXIS, Y_AXIS
 
+from embedded_ipython import EmbeddedIPythonKernel
+
 class RuntimeConfig():
     """Modified configuration settings and application state can be written to
     file for persistent storage
@@ -125,6 +127,10 @@ class MainWindow(QMainWindow):
         self.dlg_export_xlsx = QFileDialog(
             self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
 
+        ##### IPython kernel integration and Jupyter Console widget launcher
+        self.ipyconsole = EmbeddedIPythonKernel(self)
+
+
         ########## Connect main window signals
         # Main toolbar signals
         self.main_tb.act_open.triggered.connect(self.dlg_open_image.open)
@@ -132,6 +138,10 @@ class MainWindow(QMainWindow):
         self.main_tb.act_export_xlsx.triggered.connect(
             self.dlg_export_xlsx.open)
         self.main_tb.act_put_clipboard.triggered.connect(self.cw.put_clipboard)
+
+        # Embedded Jupyter Console Button
+        self.cw.btn_console.clicked.connect(
+            self.ipyconsole.launch_jupyter_console_process)
 
         # Dialog box signals
         self.dlg_open_image.fileSelected.connect(self.cw.load_image)
@@ -177,9 +187,6 @@ if __name__ == "__main__":
     mainw.show()
     mainw.activateWindow()
     
-    # IPython integration via IPython Qt5 event loop
-    ipython_pyqt_boilerplate(app)
-
     # Set up some shortcuts for command line interactive use.
     ax = mainw.cw.mplw.mpl_ax
     fig = mainw.cw.mplw.fig
@@ -190,5 +197,8 @@ if __name__ == "__main__":
     traces = model.traces
     tr1, tr2, tr3 = model.traces[0:3]
 
-    # mainw.cw.console.push_vars(locals())
+    # IPython kernel terminates application
+    mainw.ipyconsole.quit_application.connect(app.quit, Qt.QueuedConnection)
+    # Launch IPython Kernel and start GUI event loop
+    mainw.ipyconsole.start_ipython_kernel(locals(), gui="qt5")
 
