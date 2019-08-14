@@ -6,6 +6,7 @@ import tempfile
 import multiprocessing
 
 import IPython
+from jupyter_client import KernelClient
 
 from qtconsole.client import QtKernelClient
 from qtconsole.qt import QtGui, QtCore
@@ -46,6 +47,13 @@ class EmbeddedIPythonKernel(QtCore.QObject):
         if self.console_process is not None:
             self.console_process.join()
         self.quit_application.emit()
+
+    def shutdown(self):
+        client = KernelClient()
+        client.load_connection_file(self.conn_filename)
+        client.start_channels()
+        client.shutdown()
+
 
 
     def launch_jupyter_console_process(self):

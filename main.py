@@ -128,12 +128,7 @@ class MainWindow(QMainWindow):
             self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
         
         ########## Embedded IPython Kernel and Jupyter Console Launcher
-        # Jupyter Console widget and button
-        self.ipyconsole = EmbeddedIPythonKernel(locals(), gui="qt5")
-
-        ##### IPython kernel integration and Jupyter Console widget launcher
         self.ipyconsole = EmbeddedIPythonKernel(self)
-
 
         ########## Connect main window signals
         # Main toolbar signals
@@ -144,10 +139,6 @@ class MainWindow(QMainWindow):
         self.main_tb.act_put_clipboard.triggered.connect(self.cw.put_clipboard)
         
         # Embedded Jupyter Console Button signal
-        self.cw.btn_console.clicked.connect(
-            self.ipyconsole.embed_jupyter_console)
-
-        # Embedded Jupyter Console Button
         self.cw.btn_console.clicked.connect(
             self.ipyconsole.launch_jupyter_console_process)
 
@@ -174,6 +165,7 @@ class MainWindow(QMainWindow):
         self.conf.app_conf.wdir = self.wdir
         # Store all configuration
         self.conf.store_to_configfile()
+        self.ipyconsole.shutdown()
         event.accept()
 
     @pyqtSlot(str)
