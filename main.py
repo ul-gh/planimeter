@@ -126,6 +126,10 @@ class MainWindow(QMainWindow):
             self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
         self.dlg_export_xlsx = QFileDialog(
             self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
+        
+        ########## Embedded IPython Kernel and Jupyter Console Launcher
+        # Jupyter Console widget and button
+        self.ipyconsole = EmbeddedIPythonKernel(locals(), gui="qt5")
 
         ##### IPython kernel integration and Jupyter Console widget launcher
         self.ipyconsole = EmbeddedIPythonKernel(self)
@@ -138,6 +142,10 @@ class MainWindow(QMainWindow):
         self.main_tb.act_export_xlsx.triggered.connect(
             self.dlg_export_xlsx.open)
         self.main_tb.act_put_clipboard.triggered.connect(self.cw.put_clipboard)
+        
+        # Embedded Jupyter Console Button signal
+        self.cw.btn_console.clicked.connect(
+            self.ipyconsole.embed_jupyter_console)
 
         # Embedded Jupyter Console Button
         self.cw.btn_console.clicked.connect(
@@ -187,6 +195,9 @@ if __name__ == "__main__":
     mainw.show()
     mainw.activateWindow()
     
+    # IPython integration via IPython Qt5 event loop
+    #ipython_pyqt_boilerplate(app)
+
     # Set up some shortcuts for command line interactive use.
     ax = mainw.cw.mplw.mpl_ax
     fig = mainw.cw.mplw.fig

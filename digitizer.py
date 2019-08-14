@@ -163,6 +163,10 @@ class Digitizer(QWidget):
         # Clipboard handling
         #self.clipboard.dataChanged.connect(self.clipboardChanged)
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 66bea340c4e95a38fb6f3202f02094d71fc8c6ad
 
     def array2html(self, array, decimal_chr, num_fmt):
         """Make a HTML table with two columns from 2D numpy array
