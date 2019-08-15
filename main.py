@@ -200,8 +200,6 @@ if __name__ == "__main__":
     traces = model.traces
     tr1, tr2, tr3 = model.traces[0:3]
 
-    # IPython kernel terminates application
-    mainw.ipyconsole.quit_application.connect(app.quit, Qt.QueuedConnection)
     # Launch IPython Kernel and start GUI event loop
     mainw.ipyconsole.start_ipython_kernel(locals(), gui="qt5")
 

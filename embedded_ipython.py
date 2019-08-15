@@ -1,3 +1,15 @@
+# -*- coding: utf-8 -*-
+"""Embedded Ipython Kernel and Client for Qt Application
+
+Inspired by: https://github.com/jupyter/qtconsole/issues/197
+
+TODO: For a non-blocking integrated widget, have a look also at
+https://stackoverflow.com/questions/11513132/embedding-ipython-qt-console-in-a-pyqt-application
+
+TODO2: Also check qtconsole.inprocess
+
+2019-08-15 Ulrich Lukas
+"""
 import sys
 import os
 import errno
@@ -5,55 +17,68 @@ import time
 import tempfile
 import multiprocessing
 
-import IPython
-from jupyter_client import KernelClient
+from ipykernel.embed import embed_kernel
+# IPKernelApp instance already has a blocking_client factory, thus not needed:
+# from ipykernel.connect import jupyter_client
+from ipykernel.kernelapp import IPKernelApp
 
 from qtconsole.client import QtKernelClient
 from qtconsole.qt import QtGui, QtCore
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
-# from PyQt5.QtWidgets import QApplication
 
 class EmbeddedIPythonKernel(QtCore.QObject):
-    quit_application = QtCore.pyqtSignal()
-
     def __init__(self, parent):
         super().__init__(parent)
         self.conn_filename = os.path.join(
             tempfile.gettempdir(),
             f"connection-{os.getpid():d}.json"
             )
-        # New process must not be forked as it would then inherit some
-        # QApplication state
+        # ?? New process must not be forked as it would then inherit some
+        # QApplication state? Idk but this works:
         multiprocessing.set_start_method("spawn")
         self.console_process = None
 
 
     def start_ipython_kernel(self, namespace, **kwargs):
         try:
-            # This is a blocking call
-            IPython.embed_kernel(
-                local_ns=namespace,
+            # Create IPython kernel app which allows creating a connected
+            # client etc.
+            self.ipy_app = IPKernelApp.instance(
                 connection_file=self.conn_filename,
                 **kwargs,
                 )
+            self.ipy_app.initialize([])
+
+            # Create a connected kernel client for shutting down the kernel
+            # and possibly other uses
+            self.client = self.ipy_app.blocking_client()
+
+            # Alternative way of creating a client:
+            # self.client2 = client = jupyter_client.BlockingKernelClient()
+            # self.client2 = client = jupyter_client.KernelClient()
+            # self.client2.load_connection_file(self.conn_filename)
+            # self.client2.start_channels()
+
+            # This is a blocking call starting the IPython kernel and exporting
+            # the given namespace into the interactive context.
+            # This kernel uses the already initialised ipykernel app.
+            embed_kernel(local_ns=namespace)
         finally:
             try:
                 os.remove(self.conn_filename)
             except OSError as e:
                 if e.errno != errno.ENOENT:
                     raise
-        # When the kernel is terminated, close a possibly running client
-        # process and terminate application
+
+        # When the kernel is terminated, close possibly running client process
         if self.console_process is not None:
             self.console_process.join()
-        self.quit_application.emit()
 
+    # Allow terminating the kernel process as a last step when exiting the
+    # main Qt application
+    @QtCore.pyqtSlot()
     def shutdown(self):
-        client = KernelClient()
-        client.load_connection_file(self.conn_filename)
-        client.start_channels()
-        client.shutdown()
-
+        self.client.shutdown()
 
 
     def launch_jupyter_console_process(self):
@@ -88,14 +113,12 @@ class EmbeddedIPythonKernel(QtCore.QObject):
             time.sleep(0.1)
 
         app = QtGui.QApplication(["Plot Workbench Console"])
-        # app = QApplication(["Plot Workbench Console"])
 
         kernel_client = QtKernelClient(connection_file=conn_filename)
         kernel_client.load_connection_file()
         kernel_client.start_channels()
 
         def exit():
-            # FIXME: tell the kernel to shutdown
             kernel_client.shutdown()
             kernel_client.stop_channels()
             app.exit()
