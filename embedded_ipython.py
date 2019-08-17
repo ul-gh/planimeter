@@ -30,28 +30,40 @@ class EmbeddedIPythonKernel(QtCore.QObject):
     def __init__(self, parent):
         super().__init__(parent)
         self.conn_filename = os.path.join(
-            tempfile.gettempdir(),
-            f"connection-{os.getpid():d}.json"
-            )
+                tempfile.gettempdir(),
+                f"connection-{os.getpid():d}.json"
+                )
         # ?? New process must not be forked as it would then inherit some
         # QApplication state? Idk but this works:
         multiprocessing.set_start_method("spawn")
+        self.ipy_kernelapp = None
         self.console_process = None
+        # This will be an always available kernel client instance when the
+        # kernel was started
+        self.kernel_client = None
 
 
     def start_ipython_kernel(self, namespace, **kwargs):
+        """Start an embedded IPython kernel app
+
+        This integrates and runs a previously set up
+        Qt application event loop.
+
+        This function blocks forever until the kernel is shut down and
+        should thus be called as the last step of a Qt application setup.
+        """
         try:
             # Create IPython kernel app which allows creating a connected
             # client etc.
-            self.ipy_app = IPKernelApp.instance(
-                connection_file=self.conn_filename,
-                **kwargs,
-                )
-            self.ipy_app.initialize([])
+            self.ipy_kernelapp = IPKernelApp.instance(
+                    connection_file=self.conn_filename,
+                    **kwargs,
+                    )
+            self.ipy_kernelapp.initialize([])
 
             # Create a connected kernel client for shutting down the kernel
             # and possibly other uses
-            self.client = self.ipy_app.blocking_client()
+            self.kernel_client = self.ipy_kernelapp.blocking_client()
 
             # Alternative way of creating a client:
             # self.client2 = client = jupyter_client.BlockingKernelClient()
@@ -70,23 +82,34 @@ class EmbeddedIPythonKernel(QtCore.QObject):
                 if e.errno != errno.ENOENT:
                     raise
 
-        # When the kernel is terminated, close possibly running client process
+        # When the kernel is terminated, close a possibly running client process
         if self.console_process is not None:
             self.console_process.join()
 
     # Allow terminating the kernel process as a last step when exiting the
     # main Qt application
     @QtCore.pyqtSlot()
-    def shutdown(self):
-        self.client.shutdown()
+    def shutdown_kernel(self):
+        """This not only shuts down the IPython kernel but
+        also terminates the Qt application. 
+        """
+        if self.ipy_kernelapp is not None:
+            self.kernel_client.shutdown()
 
 
+    @QtCore.pyqtSlot()
     def launch_jupyter_console_process(self):
-        self.console_process = multiprocessing.Process(
-            target=self._run_embedded_qtconsole,
-            args=(self.conn_filename,),
-            )
-        self.console_process.start()
+        """Launch a Jupyter Qtconsole widget inside a completely new
+        process running as a separate Qt application
+        """
+        if self.ipy_kernelapp is not None:
+            self.console_process = multiprocessing.Process(
+                    target=self._run_embedded_qtconsole,
+                    args=(self.conn_filename,),
+                    )
+            self.console_process.start()
+        else:
+            print("No embedded IPython kernel running - no console started!")
 
     @staticmethod
     def _run_embedded_qtconsole(conn_filename):

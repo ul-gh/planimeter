@@ -13,12 +13,12 @@ from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
         QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-        QSplitter, QPlainTextEdit, QMessageBox, QTableWidget, QTableWidgetItem,
-        QPushButton,
+        QSplitter, QPlainTextEdit, QMessageBox,
+        QPushButton, QCheckBox
         )
 
 from mpl_widget import MplWidget
-from input_widget import InputWidget
+from input_widgets import AxConfWidget, TraceConfTable
 from plot_model import DataModel
 
 
@@ -60,23 +60,16 @@ class Digitizer(QWidget):
 
         # Jupyter Console button
         self.btn_console = QPushButton(
-            "Launch Jupyter Console\nIn Data Namespace", self)
+            "Launch Jupyter Console\nIn Application Namespace", self)
 
         # Traces properties are displayed in a QTableWidget
-        self.traces_table = QTableWidget(5, 5, self)
-        headers = ["Name", "Export", "Common X", "i_type", "n_pts_i"]
-        self.traces_table.setHorizontalHeaderLabels(headers)
-        for row, tr in enumerate(model.traces):
-            it = QTableWidgetItem(tr.name)
-            self.traces_table.setItem(row, 0, it)
+        self.tr_conf_table = TraceConfTable(self, model)
         
         # Push buttons and axis value input fields widget.
-        self.inputw = InputWidget(self, model)
-        inputw = self.inputw
+        self.inputw = inputw = AxConfWidget(self, model)
         
         # Matplotlib widget
-        self.mplw = MplWidget(self, model, conf)
-        mplw = self.mplw
+        self.mplw = mplw = MplWidget(self, model, conf)
        
 
         # Layout is two columns of widgets, right is data output and console,
@@ -85,7 +78,6 @@ class Digitizer(QWidget):
         hsplitter.setChildrenCollapsible(False)
         layout = QHBoxLayout(self)
         layout.addWidget(hsplitter)
-        self.setLayout(layout)
 
         # Left side layout is vertical widgets, divided by a splitter
         self.mplw_splitter = QSplitter(Qt.Vertical, self)
@@ -96,7 +88,7 @@ class Digitizer(QWidget):
         # Right side layout just the same
         io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
-        io_splitter.addWidget(self.traces_table)
+        io_splitter.addWidget(self.tr_conf_table)
         io_splitter.addWidget(self.btn_console)
         #io_splitter.addWidget(self.txtw)
 
@@ -105,8 +97,9 @@ class Digitizer(QWidget):
         io_splitter.setChildrenCollapsible(False)
         hsplitter.addWidget(io_splitter)
 
-        ########## Set up all widgets public signals for interactive GUI
-        ##### Connect model state changes to the GUI widgets
+        ########## All model and GUI signals connection, this is the
+        ########## application controller logic
+        ##### Connect model state changes to update the GUI widgets
         # Update input widget immediately when axis config changes
         model.x_ax.config_changed.connect(inputw.update_axes_view)
         model.y_ax.config_changed.connect(inputw.update_axes_view)

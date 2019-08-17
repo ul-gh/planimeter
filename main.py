@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
         self.conf.app_conf.wdir = self.wdir
         # Store all configuration
         self.conf.store_to_configfile()
-        self.ipyconsole.shutdown()
+        self.ipyconsole.shutdown_kernel()
         event.accept()
 
     @pyqtSlot(str)
@@ -200,6 +200,19 @@ if __name__ == "__main__":
     traces = model.traces
     tr1, tr2, tr3 = model.traces[0:3]
 
-    # Launch IPython Kernel and start GUI event loop
-    mainw.ipyconsole.start_ipython_kernel(locals(), gui="qt5")
+    # When running from ipython shell, use its Qt GUI event loop
+    # integration. Otherwise, start embedded IPython kernel.
+    # If import not available, start pyqt event loop via app.exec_()
+    try:
+        from IPython import get_ipython
+        ipy_inst = get_ipython()
+        if ipy_inst is not None:
+            # Running in IPython interactive shell. Configure Qt integration
+            ipy_inst.run_line_magic("gui", "qt5")
+            ipy_inst.run_line_magic("matplotlib", "qt5")
+        else:
+            # Launch embedded IPython Kernel and start GUI event loop
+            mainw.ipyconsole.start_ipython_kernel(locals(), gui="qt5")
+    except ImportError:
+        sys.exit(app.exec_())
 

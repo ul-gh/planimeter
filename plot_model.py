@@ -75,11 +75,6 @@ class DataModel(QObject):
         self.atol = conf.model_conf.atol
         # Store axes configuration persistently on disk when set
         self.store_ax_conf = conf.model_conf.store_ax_conf
-        # X-axis range used for exporting traces data
-        self.x_start_export = conf.model_conf.x_start_export
-        self.x_end_export = conf.model_conf.x_end_export
-        # Number of X-axis interpolation points for data export
-        self.n_pts_i_export = conf.model_conf.n_pts_i_export
 
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
@@ -384,11 +379,18 @@ class Trace(QObject):
         self.interp_type = tr_conf.interp_type
         # Plot data initial state, see below
         self._init_data()
+        ########## Export options
+        # X-axis range used for exporting traces data
+        self.x_start_export = tr_conf.x_start_export
+        self.x_end_export = tr_conf.x_end_export
+        # Number of X-axis interpolation points for data export
+        self.n_pts_i_export = tr_conf.n_pts_i_export
         ########## Associated view objects
         # For raw pts
         self.pts_view_obj = None # Optional: pyplot.Line2D
         # For pts_i curve
         self.pts_i_view_obj = None
+
 
     def _init_data(self):
         ########## Plot data layout
