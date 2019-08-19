@@ -51,6 +51,33 @@ class TraceConfTable(QTableWidget):
             self.setCellWidget(row, 6, combo_n_interp)
 
 
+# class TraceConfModel(QAbstractTableModel):
+#     def __init__(self, parent, model):
+#         super().__init__(parent)
+#         ....
+# public:
+#     [..]
+#     virtual QVariant headerData(int section, Qt::Orientation orientation,
+#                                 int role = Qt::DisplayRole) const
+#     {
+#         if (role == Qt::DisplayRole) {
+#             if (orientation == Qt::Vertical) {
+#                 // Decrease the row number value for vertical header view.
+#                 return section - 1;
+#             }
+#         }
+#         return QAbstractTableModel::headerData(section, orientation, role);
+#     }
+#     [..]
+# };
+# 
+# 
+# class TraceConfTable(QTableView):
+#     def __init__(self, parent, model):
+#         tr_conf_model = TraceConfModel(self, model)
+#         self.setModel(tr_conf_model)
+
+
 class AxConfWidget(QWidget):
     def __init__(self, parent, model):
         super().__init__(parent)
