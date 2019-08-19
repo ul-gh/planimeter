@@ -17,21 +17,45 @@ from PyQt5.QtWidgets import (
         QTableWidget, QTableWidgetItem
         )
 
-class TraceConfTable(QTableWidget):
+# class TraceConfTable(QTableWidget):
+#     def __init__(self, parent, model):
+#         headers = ["Name", "Pick Points", "Export", "X Start", "X End",
+#                    "Interpolation", "N Points"]
+#         n_traces = len(model.traces)
+#         n_headers = len(headers)
+#         super().__init__(n_traces, n_headers, parent)
+#         self.setHorizontalHeaderLabels(headers)
+#         # Data Export options
+#         ###
+#         n_interp_presets_text = ["10", "25", "50", "100", "250", "500", "1000"]
+#         n_interp_presets_values = [10, 25, 50, 100, 250, 500, 1000]
+#         ###
+#         i_types_text = ["Linear", "Cubic", "Sin(x)/x"]
+#         i_types_values = ["linear", "cubic", "sinc"]
+#         for row, tr in enumerate(model.traces):
+#             name = QTableWidgetItem(tr.name)
+#             btn_pick_trace = NumberedButton(row, f"Pick Trace {row+1}", self)
+#             checkbox_export = CenteredCheckbox(self)
+#             x_start = QTableWidgetItem(f"{tr.x_start_export}")
+#             x_end = QTableWidgetItem(f"{tr.x_end_export}")
+#             combo_i_type = QComboBox(self)
+#             combo_i_type.addItems(i_types_text)
+#             combo_n_interp = QComboBox(self)
+#             combo_n_interp.addItems(n_interp_presets_text)
+#             self.setItem(row, 0, name)
+#             self.setCellWidget(row, 1, btn_pick_trace)
+#             self.setCellWidget(row, 2, checkbox_export)
+#             self.setItem(row, 3, x_start)
+#             self.setItem(row, 4, x_end)
+#             self.setCellWidget(row, 5, combo_i_type)
+#             self.setCellWidget(row, 6, combo_n_interp)
+
+class TraceConfTable(QTableView):
     def __init__(self, parent, model):
-        headers = ["Name", "Pick Points", "Export", "X Start", "X End",
-                   "Interpolation", "N Points"]
-        n_traces = len(model.traces)
-        n_headers = len(headers)
-        super().__init__(n_traces, n_headers, parent)
-        self.setHorizontalHeaderLabels(headers)
-        # Data Export options
-        ###
-        n_interp_presets_text = ["10", "25", "50", "100", "250", "500", "1000"]
-        n_interp_presets_values = [10, 25, 50, 100, 250, 500, 1000]
-        ###
-        i_types_text = ["Linear", "Cubic", "Sin(x)/x"]
-        i_types_values = ["linear", "cubic", "sinc"]
+        super().__init__(parent)
+        tr_conf_model = TraceConfModel(self, model)
+        self.setModel(tr_conf_model)
+
         for row, tr in enumerate(model.traces):
             name = QTableWidgetItem(tr.name)
             btn_pick_trace = NumberedButton(row, f"Pick Trace {row+1}", self)
@@ -50,32 +74,62 @@ class TraceConfTable(QTableWidget):
             self.setCellWidget(row, 5, combo_i_type)
             self.setCellWidget(row, 6, combo_n_interp)
 
+            self.setIndexWidget
 
-# class TraceConfModel(QAbstractTableModel):
-#     def __init__(self, parent, model):
-#         super().__init__(parent)
-#         ....
-# public:
-#     [..]
-#     virtual QVariant headerData(int section, Qt::Orientation orientation,
-#                                 int role = Qt::DisplayRole) const
-#     {
-#         if (role == Qt::DisplayRole) {
-#             if (orientation == Qt::Vertical) {
-#                 // Decrease the row number value for vertical header view.
-#                 return section - 1;
-#             }
-#         }
-#         return QAbstractTableModel::headerData(section, orientation, role);
-#     }
-#     [..]
-# };
-# 
-# 
-# class TraceConfTable(QTableView):
-#     def __init__(self, parent, model):
-#         tr_conf_model = TraceConfModel(self, model)
-#         self.setModel(tr_conf_model)
+
+class TraceConfModel(QAbstractTableModel):
+    def __init__(self, parent, model):
+        super().__init__(parent)
+
+        self.headers = ["Name", "Pick Points", "Export", "X Start", "X End",
+                   "Interpolation", "N Points"]
+        self.n_traces = len(model.traces)
+        self.n_headers = len(headers)
+        # Data Export options
+        ###
+        self.n_interp_presets_text = [
+                "10", "25", "50", "100", "250", "500", "1000"]
+        self.n_interp_presets_values = [10, 25, 50, 100, 250, 500, 1000]
+        ###
+        self.i_types_text = ["Linear", "Cubic", "Sin(x)/x"]
+        self.i_types_values = ["linear", "cubic", "sinc"]
+
+    def update(self, dataIn):
+        print('Updating Model')
+        self.datatable = dataIn
+        print('Datatable : {0}'.format(self.datatable))
+
+    def rowCount(self, parent=QtCore.QModelIndex()):
+        return len(self.datatable.index) 
+        
+    def columnCount(self, parent=QtCore.QModelIndex()):
+        return len(self.datatable.columns.values) 
+        
+    def data(self, index, role=QtCore.Qt.DisplayRole):
+        #print 'Data Call'
+        #print index.column(), index.row()
+        if role == QtCore.Qt.DisplayRole:
+            i = index.row()
+            j = index.column()
+            #return QtCore.QVariant(str(self.datatable.iget_value(i, j)))
+            return '{0}'.format(self.datatable.iloc[i, j])
+        else:
+            return QtCore.QVariant()
+
+    def headerData(self,
+                   section: int,
+                   orientation: Qt.Orientation = Qt.Vertical,
+                   role = Qt.DisplayRole,
+                   ):
+        if role == Qt.DisplayRole and orientation == Qt.Vertical:
+            # Decrease the row number value for vertical header view.
+            return section
+        else:
+            return QAbstractTableModel.headerData(
+                self, section, orientation, role)
+
+    def flags(self, index):
+        return Qt.ItemIsEditable | Qt.ItemIsEnabled
 
 
 class AxConfWidget(QWidget):
