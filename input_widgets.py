@@ -18,9 +18,13 @@ from PyQt5.QtWidgets import (
         )
 
 class TraceConfTable(QTableWidget):
+    show_xrange = pyqtSignal(bool)
+
     def __init__(self, parent, model):
         headers = ["Name", "Pick Points", "Export", "X Start", "X End",
                    "Interpolation", "N Points"]
+        self.col_xstart = headers.index("X Start")
+        self.col_xend = headers.index("X End")
         n_traces = len(model.traces)
         n_headers = len(headers)
         super().__init__(n_traces, n_headers, parent)
@@ -50,32 +54,44 @@ class TraceConfTable(QTableWidget):
             self.setCellWidget(row, 5, combo_i_type)
             self.setCellWidget(row, 6, combo_n_interp)
 
+        ##### Signals
+        self.itemSelectionChanged.connect(self._handle_selection)
 
-# class TraceConfModel(QAbstractTableModel):
-#     def __init__(self, parent, model):
-#         super().__init__(parent)
-#         ....
-# public:
-#     [..]
-#     virtual QVariant headerData(int section, Qt::Orientation orientation,
-#                                 int role = Qt::DisplayRole) const
-#     {
-#         if (role == Qt::DisplayRole) {
-#             if (orientation == Qt::Vertical) {
-#                 // Decrease the row number value for vertical header view.
-#                 return section - 1;
-#             }
-#         }
-#         return QAbstractTableModel::headerData(section, orientation, role);
-#     }
-#     [..]
-# };
-# 
-# 
-# class TraceConfTable(QTableView):
-#     def __init__(self, parent, model):
-#         tr_conf_model = TraceConfModel(self, model)
-#         self.setModel(tr_conf_model)
+    def _handle_selection(self):
+        self.sel_traces = sel_traces = {
+                s.row() for s in self.selectedIndexes()
+                if s.column() in (self.col_xstart, self.col_xend)
+                and s.row() < self.n_traces
+                }
+        if sel_traces:
+            self._show_xrange = True
+            inf = float("inf")
+            x_start = -inf
+            x_end = inf
+            for i in sel_traces:
+                item_start = self.item(i, self.col_xstart)
+                item_end = self.item(i, self.col_xend)
+                xs_new = float(item_start.text())
+                xe_new = float(item_end.text())
+                if xs_new < x_start:
+                    x_start = xs_new
+                if xe_new < x_end:
+                    x_end = xe_new
+            for i in sel_traces:
+                self.model.traces[i].x_start_export = x_start
+                self.model.traces[i].x_end_export = x_end
+                self.x_start_export = x_start
+                self.x_end_export = x_end
+            self.show_xrange.emit(True)
+        elif self._show_xrange:
+            self._show_xrange = False
+            self.show_xrange.emit(False)
+
+    @pyqtSlot()
+    def update_from_model(self):
+        for i in range(self.n_traces):
+            self.item(i, col_xstart).setText(f"{self.x_start_export}")
+            self.item(i, col_xend).setText(f"{self.x_end_export}")
 
 
 class AxConfWidget(QWidget):
