@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QMessageBox
 
 import matplotlib.figure
 import matplotlib.image as mpimg
+from matplotlib.patches import Polygon
 import matplotlib.backends.backend_qt5agg as mpl_backend_qt
 
 ########## Constants definitions
@@ -355,7 +356,9 @@ class MplWidget(QWidget):
 
     def on_pick(self, event):
         # Mouse pick event handling
-        self.pick_and_blit(event.artist, event.ind)
+        index = event.ind if hasattr(event, "ind") else None
+        self.pick_origin_x = event.mouseevent.xdata
+        self.pick_and_blit(event.artist, index)
         self.canvas_qt.draw_idle()
 
     def on_button_release(self, event):
@@ -378,23 +381,29 @@ class MplWidget(QWidget):
         if picked_obj is None:
             return
         index = self.picked_obj_index
-        xydata = picked_obj.get_xydata()
-        # Implicit cast to np.ndarray
-        xydata[index] = (event.xdata, event.ydata)
-        # Set data only in view component (model is updated on button release)
-        picked_obj.set_data(*xydata.T)
-        ### Option:
-        # Set data also in model when dragging existing points.
-        # Causes re-calculation.
-        if self.op_mode == MODE_DEFAULT:
-            self.picked_obj_model.update_pt_px(xydata[index], index)
-        ###
-        # Blitting operation
-        self.canvas_qt.restore_region(self.background)
-        # Redraws object using cached Agg renderer
-        self.mpl_ax.draw_artist(picked_obj)
-        # Blitting final step does seem to also update the Qt widget.
-        self.canvas_qt.blit(self.mpl_ax.bbox)
+        if index is not None:
+            # Move normal points
+            xydata = picked_obj.get_xydata()
+            # Implicit cast to np.ndarray
+            xydata[index] = event.xdata, event.ydata
+            # Set data only in view component (model is updated on button release)
+            picked_obj.set_data(*xydata.T)
+            ### Option:
+            # Set data also in model when dragging existing points.
+            # Causes re-calculation.
+            if self.op_mode == MODE_DEFAULT:
+                self.picked_obj_model.update_pt_px(xydata[index], index)
+            ###
+            # Blitting operation
+            self.canvas_qt.restore_region(self.background)
+            # Redraws object using cached Agg renderer
+            self.mpl_ax.draw_artist(picked_obj)
+            # Blitting final step does seem to also update the Qt widget.
+            self.canvas_qt.blit(self.mpl_ax.bbox)
+        else:
+            # Move polygons along X
+            px_x = event.xdata
+            picked_obj.xy[:4,0] += px_x - pick_origin_x
 
 
     def pick_and_blit(self, view_obj, index):
