@@ -56,25 +56,50 @@ class DataModel(QObject):
 
     def __init__(self, parent, conf):
         super().__init__(parent)
-        ########## Data Model Composition
+        ########## Plot model composition
+        ##### Two axes
         self.x_ax = Axis(self, conf.x_ax_conf)
         self.y_ax = Axis(self, conf.y_ax_conf)
+        ##### Origin
         self.origin_px = np.full(2, NaN)
         # Matplotlib format code
         self.origin_fmt = conf.model_conf.origin_fmt
         self.origin_view_obj = None
+        ##### Arbitrary number of traces
         # Three traces are default, see main.DefaultConfig
         self.traces = [
             Trace(self, conf.trace_conf, name, color)
             for name, color
             in zip(conf.model_conf.traces_names, conf.model_conf.traces_colors)
             ]
+
+        ##### Trace export options
+        # X-axis range used for interpolating traces export data.
+        # In order to avoid strange results due to uncalled-for extrapolation
+        # when no extrapolation function is defined, this is later set to the 
+        # intersection of definition ranges of all traces marked for export.
+        self.x_start_export = NaN
+        self.x_start_export_lin = NaN
+        self.x_end_export = NaN
+        self.x_end_export_lin = NaN
+        # Number of X-axis points of the interpolation grid
+        self.n_pts_i_export = conf.model_conf.n_pts_i_export
+        self.n_pts_i_export_max = conf.model_conf.n_pts_i_export_max
+        # Step size between two points on the interpolation grid
+        self.x_step_export = conf.model_conf.x_step_export
+        self.x_step_export_min = conf.model_conf.x_step_export_min
+        # Update above values if only one value has been preset
+        self._update_n_pts_export()
+        self._update_x_step_export()
+
+        ##### Common settings
         # Python string format code for display of numbers
         self.num_fmt = conf.app_conf.num_fmt_gui
         # Absolute tolerance for testing if values are close to zero
         self.atol = conf.model_conf.atol
         # Store axes configuration persistently on disk when set
         self.store_ax_conf = conf.model_conf.store_ax_conf
+
 
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
@@ -97,11 +122,11 @@ class DataModel(QObject):
         for i, tr in enumerate(self.traces):
             # When points are moved, update outputs but no sorting is needed
             tr.pts_changed.connect(
-                partial(self.calculate_view_outputs, i, False))
+                partial(self.calculate_live_outputs, i, False))
             # When points are added or deleted, not only update outputs but
             # re-sort the points and update the view of the raw points
             tr.pts_added_deleted.connect(
-                partial(self.calculate_view_outputs, i, True))
+                partial(self.calculate_live_outputs, i, True))
             tr.pts_added_deleted.connect(
                 partial(self.redraw_tr_pts_px[int].emit, i))
             # The errors are also re-emitted.
@@ -166,6 +191,48 @@ class DataModel(QObject):
                 )
         return output_arr.T
 
+    def update_export_range(self):
+        # Limit the range of the X axis to be used for data export to the
+        # intersection of definition ranges of all traces marked for export.
+        # This is to avoid strange results due to uncalled-for extrapolation
+        # when no extrapolation function is defined.
+        self.x_start_export_lin = max(
+                tr.pts_lin[0,0] for tr in self.traces if tr.export
+                )
+        self.x_end_export_lin = min(
+                tr.pts_lin[-1,0] for tr in self.traces if tr.export
+                )
+        # Anti-log treatment for X axis
+        if self.x_ax.log_scale:
+            self.x_start_export, self.x_end_export = np.power(
+                    self.x_ax.log_base,
+                    (self.x_start_export_lin, self.x_end_export_lin),
+                    )
+        else:
+            self.x_start_export = self.x_start_export_lin 
+            self.x_end_export = self.x_end_export_lin 
+
+        # FIXME: This limits the number of points first when limits are
+        # modified. Is this a good idea?
+        self.update_n_pts_export()
+        self.update_x_step_export()
+
+    def update_x_step_export(self):
+        n_pts = self.n_pts_i_export
+        if n_pts > 1:
+            self.x_step_export = max(
+                    self.x_step_export_min,
+                    (self.x_end_export - self.x_start_export) / (n_pts - 1)
+                    )
+
+    def update_n_pts_export(self):
+        x_step = self.x_step_export
+        if x_step > 0:
+            self.n_pts_i_export = min(
+                    self.n_pts_i_export_max,
+                    1 + int((self.x_end_export - self.x_start_export) / x_step)
+                    )
+
 
     def axes_setup_is_complete(self) -> bool:
         """Returns True if axes configuration is all complete and valid
@@ -200,7 +267,7 @@ class DataModel(QObject):
 
     @pyqtSlot()
     @pyqtSlot(int, bool)
-    def calculate_view_outputs(self, trace_no=None, sorting_needed=True):
+    def calculate_live_outputs(self, trace_no=None, sorting_needed=True):
         """Performs coordinate transformation, interpolation, curve fitting,
         integration and any additional transformations and calculations on the
         data model.
@@ -220,6 +287,7 @@ class DataModel(QObject):
                     tr._sort_pts()
                 # Anyways:
                 tr._interpolate_view_data()
+                tr._handle_log_scale(self.x_ax, self.y_ax)
         # Emit signals informing of updated trace data
         if trace_no is None:
             self.output_data_changed.emit()
@@ -325,7 +393,7 @@ class DataModel(QObject):
 
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
-        self.calculate_view_outputs()
+        self.calculate_live_outputs()
         self.redraw_ax_pts_px.emit()
 
     @staticmethod
@@ -369,6 +437,8 @@ class Trace(QObject):
         super().__init__(parent)
         ########## Plot trace configuration
         self.name = name
+        # Marks this trace for export
+        self.export = tr_conf.export
         # Keyword options for plotting. The instances can have different
         # colors, thus using a copy from conf obj with updated color attribute.
         self.pts_fmt = dict(tr_conf.pts_fmt, **{"color": color})
@@ -379,12 +449,6 @@ class Trace(QObject):
         self.interp_type = tr_conf.interp_type
         # Plot data initial state, see below
         self._init_data()
-        ########## Export options
-        # X-axis range used for exporting traces data
-        self.x_start_export = tr_conf.x_start_export
-        self.x_end_export = tr_conf.x_end_export
-        # Number of X-axis interpolation points for data export
-        self.n_pts_i_export = tr_conf.n_pts_i_export
         ########## Associated view objects
         # For raw pts
         self.pts_view_obj = None # Optional: pyplot.Line2D
@@ -483,22 +547,17 @@ class Trace(QObject):
             (xgrid.reshape(-1,1), yvals.reshape(-1,1)), axis=1)
 
 
-    # FIXME: This is only necessary for generating export data
-    def _handle_log_scale(self, x_ax, y_ax) -> None:
+    def _handle_log_scale(self, x_ax y_ax) -> None:
         # For log axes, the linearised coordinates are transformed
         # back to original logarithmic axes scale. No action for lin axes.
         #
         # Make a copy to keep the original linearised coordinates
         pts = self.pts_lin.copy()
-        pts_i = self.pts_lin_i.copy()
         if x_ax.log_scale:
             pts[:,0] = np.power(x_ax.log_base, pts[:,0])
-            pts_i[:,0] = np.power(x_ax.log_base, pts_i[:,0])
         if y_ax.log_scale:
             pts[:,1] = np.power(y_ax.log_base, pts[:,1])
-            pts_i[:,1] = np.power(y_ax.log_base, pts_i[:,1])
         self.pts = pts
-        self.pts_i = pts_i
 
 
 class Axis(QObject):

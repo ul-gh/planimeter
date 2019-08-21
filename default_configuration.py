@@ -28,6 +28,12 @@ class APPLICATION():
 class DATA_MODEL():
     """Settings for all traces, axes etc
     """
+    ########## Export options
+    # Number of X-axis interpolation points for data export
+    n_pts_i_export = 100
+    n_pts_i_export_max = 100000
+    x_step_export = float("NaN")
+    x_step_export_min = 1e-18
     # Absolute tolerance for testing if values are close to zero
     atol = 1e-18
     # Default trace names and colors
@@ -50,13 +56,8 @@ class TRACE():
     # Trace raw points format, same for all traces
     pts_fmt = {"picker": 10.0, "linestyle": ":",
                "marker": "x", "markersize": 10.0}
-    ########## Export options
-    # X-axis range used for exporting traces data. If set to None, use
-    # range of graphically selected X-axis section
-    x_start_export = 0.0
-    x_end_export = 100.0
-    # Number of X-axis interpolation points for data export
-    n_pts_i_export = 100
+    # Mark new traces for export
+    export = True
 
 class X_AXIS():
     """Settings for X-Axis
