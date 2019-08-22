@@ -168,19 +168,9 @@ class DataModel(QObject):
         If no interpolation data is available for a trace, a column of
         NaN values is returned for that trace.
         """
-        if n_interp is None:
-            n_interp = self.n_pts_i_export
-        if x_start is None:
-            x_start = self.x_start_export
-        if x_end is None:
-            x_end = self.x_end_export
-        #x_start = np.log(
-        x_grid_export = np.linspace(x_start, x_end, num=n_interp)
         output_arr = np.empty((1+len(trace_nums), n_interp))
         output_arr[0] = (
-            np.power(x_ax.log_base, x_grid_export)
-            if x_ax.log_scale
-            else x_grid_export
+                #FIXME incomplete
             )
         for column, trace_no in enumerate(trace_nums, start=1):
             tr = self.traces[trace_no]
@@ -190,6 +180,15 @@ class DataModel(QObject):
                 else tr.f_interp(x_grid_export)
                 )
         return output_arr.T
+
+    def generate_export_grid(self, log_scale=False):
+        """Generate an interpolation grid for trace data export.
+
+        This can be evenly spaced points in linear or logarithmic
+        data space.
+        """
+        #x_grid_export = np.linspace(x_start, x_end, num=n_interp)
+        pass
 
     def update_export_range(self):
         # Limit the range of the X axis to be used for data export to the
