@@ -29,8 +29,11 @@ class DATA_MODEL():
     """Settings for all traces, axes etc
     """
     ########## Export options
-    # Number of X-axis interpolation points for data export
+    # Number of X-axis interpolation points for data export for linear X grid
     n_pts_i_export = 100
+    # Number of X-axis interpolation points for data export for log X grid
+    n_pts_i_export_dec = 100
+    # Maximum number of export points
     n_pts_i_export_max = 100000
     x_step_export = float("NaN")
     x_step_export_min = 1e-18

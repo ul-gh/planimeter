@@ -4,6 +4,9 @@
 
 License: GPL version 3
 """
+import logging
+logger = logging.getLogger(__name__)
+
 from functools import partial
 
 import numpy as np
@@ -11,6 +14,7 @@ from numpy import NaN, isnan, isclose
 from scipy.interpolate import interp1d
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
+
 
 class DataModel(QObject):
     """DataModel
@@ -79,11 +83,12 @@ class DataModel(QObject):
         # when no extrapolation function is defined, this is later set to the 
         # intersection of definition ranges of all traces marked for export.
         self.x_start_export = NaN
-        self.x_start_export_lin = NaN
         self.x_end_export = NaN
-        self.x_end_export_lin = NaN
-        # Number of X-axis points of the interpolation grid
+        # Number of X-axis points of a linear interpolation grid
         self.n_pts_i_export = conf.model_conf.n_pts_i_export
+        # Number of X-axis points per decade in case of log X grid
+        self.n_pts_i_export_dec = conf.model_conf.n_pts_i_export_dec
+        # Maximum number of export points for user input verification
         self.n_pts_i_export_max = conf.model_conf.n_pts_i_export_max
         # Step size between two points on the interpolation grid
         self.x_step_export = conf.model_conf.x_step_export
@@ -91,6 +96,8 @@ class DataModel(QObject):
         # Update above values if only one value has been preset
         self._update_n_pts_export()
         self._update_x_step_export()
+        ##### X-axis grid in data coordinates used for export
+        self.x_grid_export = None
 
         ##### Common settings
         # Python string format code for display of numbers
@@ -175,38 +182,49 @@ class DataModel(QObject):
         for column, trace_no in enumerate(trace_nums, start=1):
             tr = self.traces[trace_no]
             output_arr[column] = (
-                np.power(y_ax.log_base, tr.f_interp(x_grid_export))
-                if y_ax.log_scale
-                else tr.f_interp(x_grid_export)
-                )
+                    np.power(y_ax.log_base, tr.f_interp_lin(x_grid_export))
+                    if y_ax.log_scale
+                    else tr.f_interp_lin(x_grid_export)
+                    )
         return output_arr.T
 
-    def generate_export_grid(self, log_scale=False):
+    def generate_export_grid(self, x_start, x_end, log_scale=False):
         """Generate an interpolation grid for trace data export.
 
         This can be evenly spaced points in linear or logarithmic
         data space.
         """
-        #x_grid_export = np.linspace(x_start, x_end, num=n_interp)
-        pass
+        if log_scale:
+            # Grid is specified by number of points per decade; thus using log10
+            x_start_lin = np.log10(x_start)
+            x_end_lin = np.log10(x_end)
+            n_dec = x_end_lin - x_start_lin
+            N_tot = n_dec * self.n_pts_i_export_dec
+            self.x_grid_export = np.logspace(x_start_lin, x_end_lin, N_tot)
+        else:
+            self.x_grid_export = np.arange(x_start, x_end, self.x_step_export)
 
     def update_export_range(self):
         # Limit the range of the X axis to be used for data export to the
         # intersection of definition ranges of all traces marked for export.
         # This is to avoid strange results due to uncalled-for extrapolation
         # when no extrapolation function is defined.
-        self.x_start_export_lin = max(
-                tr.pts_lin[0,0] for tr in self.traces if tr.export
-                )
-        self.x_end_export_lin = min(
-                tr.pts_lin[-1,0] for tr in self.traces if tr.export
-                )
+        try:
+            self.x_start_export_lin = max(
+                    tr.pts_lin[0,0] for tr in self.traces if tr.export
+                    )
+            self.x_end_export_lin = min(
+                    tr.pts_lin[-1,0] for tr in self.traces if tr.export
+                    )
+        except ValueError as e:
+            logger.info(f"Got error: {e.args[0]}. No trace marked for export?")
+            return
         # Anti-log treatment for X axis
         if self.x_ax.log_scale:
-            self.x_start_export, self.x_end_export = np.power(
-                    self.x_ax.log_base,
-                    (self.x_start_export_lin, self.x_end_export_lin),
-                    )
+            self.x_start_export = np.power(self.x_ax.log_base,
+                                           self.x_start_export_lin)
+            self.x_end_export = np.power(self.x_ax.log_base,
+                                         self.x_end_export_lin)
         else:
             self.x_start_export = self.x_start_export_lin 
             self.x_end_export = self.x_end_export_lin 
@@ -326,15 +344,15 @@ class DataModel(QObject):
         ########## Two points in data coordinates
         # For logarithmic axes, their values are linearised.
         x_ax.pts_data_lin = (
-            np.log(x_ax.pts_data) / np.log(x_ax.log_base)
-            if x_ax.log_scale
-            else x_ax.pts_data
-            )
+                np.log(x_ax.pts_data) / np.log(x_ax.log_base)
+                if x_ax.log_scale
+                else x_ax.pts_data
+                )
         y_ax.pts_data_lin = (
-            np.log(y_ax.pts_data) / np.log(y_ax.log_base)
-            if y_ax.log_scale
-            else y_ax.pts_data
-            )
+                np.log(y_ax.pts_data) / np.log(y_ax.log_base)
+                if y_ax.log_scale
+                else y_ax.pts_data
+                )
         x_ax_data_near, x_ax_data_far = x_ax.pts_data_lin
         y_ax_data_near, y_ax_data_far = y_ax.pts_data_lin
 
@@ -346,11 +364,11 @@ class DataModel(QObject):
         # Calculate data axes origin in pixel coordinates for both axes.
         # This is done by extrapolating axes sections down to zero value.
         origin_xax = x_ax_px_near - x_ax_vect * (
-            x_ax_data_near / (x_ax_data_far - x_ax_data_near)
-            )
+                x_ax_data_near / (x_ax_data_far - x_ax_data_near)
+                )
         origin_yax = y_ax_px_near - y_ax_vect * (
                 y_ax_data_near / (y_ax_data_far - y_ax_data_near)
-            )
+                )
         # Calculate intersection point of the possibly shifted data coordinate
         # axes.
         ax_intersection = self._lines_intersection(x_ax.pts_px, y_ax.pts_px)
@@ -474,9 +492,13 @@ class Trace(QObject):
         # For log axes, the values are calculated.
         self.pts = np.empty((0, 2))
         self.pts_i = np.empty((0, 2))
-        # This is overwritten with cubic spline polynomial function
+        # This is overwritten with interpolation function
         # representation of trace data when at least four data points
         # are available and Trace._interpolate_view_data is called.
+        self.f_interp_lin = lambda arr: np.full(arr.shape[0], NaN)
+        # In case of log X axis, this is the above interpolation function
+        # with its output values exponentiated.
+        # In case of lin X axis, this is a copy.
         self.f_interp = lambda arr: np.full(arr.shape[0], NaN)
 
 
@@ -538,25 +560,70 @@ class Trace(QObject):
             return
         # Scipy interpolate generates an interpolation function which is added
         # to this instance attriutes
-        self.f_interp = interp1d(*pts.T, kind=self.interp_type)
+        self.f_interp_lin = interp1d(*pts.T, kind=self.interp_type)
         # Generate finer grid
         xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
-        yvals = self.f_interp(xgrid)
+        yvals = self.f_interp_lin(xgrid)
         self.pts_lin_i = np.concatenate(
-            (xgrid.reshape(-1,1), yvals.reshape(-1,1)), axis=1)
+                (xgrid.reshape(-1, 1), yvals.reshape(-1, 1)),
+                axis=1
+                )
 
 
-    def _handle_log_scale(self, x_ax y_ax) -> None:
-        # For log axes, the linearised coordinates are transformed
-        # back to original logarithmic axes scale. No action for lin axes.
+    def _handle_log_scale(self, x_ax, y_ax) -> None:
+        # For each trace this:
         #
-        # Make a copy to keep the original linearised coordinates
-        pts = self.pts_lin.copy()
+        # ==> Defines an individual interpolation function to be directly used
+        # with coordinates in data space no matter if the model internally
+        # works with linearised values in case of log scale or not.
+        #
+        # ==> Transforms non-interpolated linearised trace points to
+        # logarithmic scale by exponentiation if needed for each axis.
+        #
+        # Anyways, makes a copy to keep the original linearised coordinates.
         if x_ax.log_scale:
-            pts[:,0] = np.power(x_ax.log_base, pts[:,0])
-        if y_ax.log_scale:
-            pts[:,1] = np.power(y_ax.log_base, pts[:,1])
-        self.pts = pts
+            if y_ax.log_scale:
+                ##### CASE 1: dual logarithmic scale
+                # Transform points Y coordinates back to log scale
+                self.pts = np.power(
+                        (x_ax.log_base, y_ax.log_base),
+                        self.pts_lin
+                        )
+                # Interpolation function applied to logarithmised X values
+                # and also post-exponentiated
+                self.f_interp = lambda x: np.power(
+                        x_ax.log_base,
+                        self.f_interp_lin(np.log(x) / np.log(x_ax.log_base))
+                        )
+            else:
+                ##### CASE 2: X axis only logarithmic scale
+                # Transform points X coordinates back to log scale
+                self.pts = np.power(
+                        (x_ax.log_base, 1),
+                        self.pts_lin
+                        )
+                # Interpolation function applied to logarithmised X values
+                self.f_interp = lambda x: self.f_interp_lin(
+                        # This seems to perform better than np.emath.logn
+                        np.log(x) / np.log(x_ax.log_base)
+                        )
+        else:
+            if y_ax.log_scale:
+                ##### CASE 3: Y axis only logarithmic scale
+                # Transform points Y coordinates back to log scale
+                self.pts = np.power(
+                        (1, y_ax.log_base),
+                        self.pts_lin
+                        )
+                # Interpolation function post-exponentiation only
+                self.f_interp = lambda x: np.power(
+                        y_ax.log_base,
+                        self.f_interp_lin(x)
+                        )
+            else:
+                ##### CASE 4: no logarithmic scale
+                self.pts = self.pts_lin.copy()
+                self.f_interp = self.f_interp_lin
 
 
 class Axis(QObject):
@@ -666,8 +733,7 @@ class Axis(QObject):
             # error message and return if this is the case
             pts_distance = np.linalg.norm(pts_px[pt_index-1] - xydata)
             if isclose(pts_distance, 0.0, atol=self.atol):
-                self.value_error.emit(
-                    "X axis section must not be zero length")
+                self.value_error.emit("X axis section must not be zero length")
                 return
         # Point validated or no validity check necessary
         pts_px[pt_index] = xydata
