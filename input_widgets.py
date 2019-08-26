@@ -17,6 +17,70 @@ from PyQt5.QtWidgets import (
         QTableWidget, QTableWidgetItem
         )
 
+class ExportWidget(QWidget):
+    def __init__(self, parent, model):
+        super().__init__(parent)
+        ######### Shortcuts to the data model
+        self.model = model
+        self.x_ax = model.x_ax
+        self.y_ax = model.y_ax
+
+        ######### Qt widget setup
+        # Error message box used in set_prop()
+        self.messagebox = QMessageBox(self)
+        
+        ######### Group box for export settings
+        self.group_export = QGroupBox("Trace Export Settings")
+        group_export_layout = QHBoxLayout(self.group_export)
+        # Group export contents
+        self.btn_do_export = StyledButton("Do Data Export", self)
+        self.x_start_exportw = SciLineEdit(
+                self.x_start_export, "X Axis Start Value", model.num_fmt)
+        self.x_end_exportw = SciLineEdit(
+                self.x_end_export, "X Axis End Value", model.num_fmt)
+        self.btn_lin_export = QRadioButton("Lin")
+        self.btn_log_export = QRadioButton("Log")
+        self.btn_lin_x.setChecked(not model.log_scale_export)
+        self.btn_log_x.setChecked(model.log_scale_export)
+        group_x_layout.addWidget(self.x_start_exportw)
+        group_x_layout.addWidget(self.x_end_exportw)
+       # FIXME 
+
+        # Store plot config button
+        self.btn_store_config = QCheckBox("Store Config")
+        self.btn_store_config.setChecked(self.model.store_ax_conf)
+
+        # Pick traces buttons
+        self.btns_pick_trace = (
+                NumberedButton(0, "Pick\nTrace 1", self),
+                NumberedButton(1, "Pick\nTrace 2", self),
+                NumberedButton(2, "Pick\nTrace 3", self),
+                )
+        
+        # Export Data button
+        self.btn_export = StyledButton("Export\nData", self)
+
+        
+        # This is all input boxes plus label
+        inputw_layout = QHBoxLayout(self)
+        inputw_layout.addWidget(self.group_x)
+        inputw_layout.addWidget(self.group_y)
+        inputw_layout.addWidget(self.btn_store_config)
+        for i in self.btns_pick_trace:
+            i.setAutoExclusive(True)
+            inputw_layout.addWidget(i)
+        inputw_layout.addWidget(self.btn_export)
+
+        ########## Initialise view from model
+        self.update_axes_view()
+
+
+    ########## Slots
+    @pyqtSlot()
+    def update_axes_view(self):
+ 
+
+
 class TraceConfTable(QTableWidget):
     show_xrange = pyqtSignal(bool)
 

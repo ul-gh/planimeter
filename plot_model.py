@@ -57,6 +57,8 @@ class DataModel(QObject):
     redraw_ax_pts_px = pyqtSignal()
     # GUI error feedback when invalid data was entered
     value_error = pyqtSignal(str)
+    # GUI feedback when export range settings are outside of points range
+    export_range_warning = pyqtSignal()
 
     def __init__(self, parent, conf):
         super().__init__(parent)
@@ -84,18 +86,16 @@ class DataModel(QObject):
         # intersection of definition ranges of all traces marked for export.
         self.x_start_export = NaN
         self.x_end_export = NaN
+        self.log_scale_export = False
         # Number of X-axis points of a linear interpolation grid
-        self.n_pts_i_export = conf.model_conf.n_pts_i_export
+        self.update_n_pts_export(conf.model_conf.n_pts_i_export)
         # Number of X-axis points per decade in case of log X grid
         self.n_pts_i_export_dec = conf.model_conf.n_pts_i_export_dec
         # Maximum number of export points for user input verification
         self.n_pts_i_export_max = conf.model_conf.n_pts_i_export_max
         # Step size between two points on the interpolation grid
-        self.x_step_export = conf.model_conf.x_step_export
+        self.update_x_step_export(conf.model_conf.x_step_export)
         self.x_step_export_min = conf.model_conf.x_step_export_min
-        # Update above values if only one value has been preset
-        self._update_n_pts_export()
-        self._update_x_step_export()
         ##### X-axis grid in data coordinates used for export
         self.x_grid_export = None
 
@@ -130,12 +130,16 @@ class DataModel(QObject):
             # When points are moved, update outputs but no sorting is needed
             tr.pts_changed.connect(
                 partial(self.calculate_live_outputs, i, False))
+            # Export range update
+            tr.pts_changed.connect(self.update_export_settings)
             # When points are added or deleted, not only update outputs but
             # re-sort the points and update the view of the raw points
             tr.pts_added_deleted.connect(
                 partial(self.calculate_live_outputs, i, True))
             tr.pts_added_deleted.connect(
                 partial(self.redraw_tr_pts_px[int].emit, i))
+            # Export range update
+            tr.pts_added_deleted.connect(self.update_export_settings)
             # The errors are also re-emitted.
             tr.value_error.connect(self.value_error)
 
@@ -144,8 +148,7 @@ class DataModel(QObject):
             self._calculate_coordinate_transformation()
 
     ########## GUI scope and public methods
-    def export_traces(self, *trace_nums, n_interp=None, x_start=None,
-                      x_end=None):
+    def export_traces(self):
         """Interpolate data from the given trace numbers using a common
         interpolation grid with n_interp X-axis points, spaced evenly
         in linearised data coordinate units between x_start and x_end
@@ -175,18 +178,14 @@ class DataModel(QObject):
         If no interpolation data is available for a trace, a column of
         NaN values is returned for that trace.
         """
-        output_arr = np.empty((1+len(trace_nums), n_interp))
-        output_arr[0] = (
-                #FIXME incomplete
-            )
-        for column, trace_no in enumerate(trace_nums, start=1):
-            tr = self.traces[trace_no]
-            output_arr[column] = (
-                    np.power(y_ax.log_base, tr.f_interp_lin(x_grid_export))
-                    if y_ax.log_scale
-                    else tr.f_interp_lin(x_grid_export)
-                    )
-        return output_arr.T
+        x_grid = self.x_grid_export
+        n_interp = len(x_grid)
+        trace_funcs = [tr.f_interp for tr in self.traces if tr.export]
+        output_arr = np.empty((1+len(trace_funcs), n_interp))
+        output_arr[0] = x_grid
+        for row, func in enumerate(trace_funcs, start=1):
+            output_arr[row] = func(x_grid)
+        self.output_arr = output_arr
 
     def generate_export_grid(self, x_start, x_end, log_scale=False):
         """Generate an interpolation grid for trace data export.
@@ -204,16 +203,34 @@ class DataModel(QObject):
         else:
             self.x_grid_export = np.arange(x_start, x_end, self.x_step_export)
 
-    def update_export_range(self):
+    @pyqtSlot(float)
+    def set_x_start_export(self, x_start):
+        self.autorange_export = False
+        self.x_start_export = x_start
+        self.update_export_settings()
+
+    @pyqtSlot(float)
+    def set_x_end_export(self, x_end):
+        self.autorange_export = False
+        self.x_end_export = x_end
+        self.update_export_settings()
+
+    @pyqtSlot(bool)
+    def set_autorange_export(self, state=True):
+        self.autorange_export = state
+
+    @pyqtSlot()
+    def update_export_settings(self):
         # Limit the range of the X axis to be used for data export to the
         # intersection of definition ranges of all traces marked for export.
         # This is to avoid strange results due to uncalled-for extrapolation
         # when no extrapolation function is defined.
         try:
-            self.x_start_export_lin = max(
+            x_start_lin_limit = max(
+                    # max() takes a generator expression
                     tr.pts_lin[0,0] for tr in self.traces if tr.export
                     )
-            self.x_end_export_lin = min(
+            x_end_lin_limit = min(
                     tr.pts_lin[-1,0] for tr in self.traces if tr.export
                     )
         except ValueError as e:
@@ -221,34 +238,46 @@ class DataModel(QObject):
             return
         # Anti-log treatment for X axis
         if self.x_ax.log_scale:
-            self.x_start_export = np.power(self.x_ax.log_base,
-                                           self.x_start_export_lin)
-            self.x_end_export = np.power(self.x_ax.log_base,
-                                         self.x_end_export_lin)
+            x_start_export_limit = self.x_ax.log_base ** x_start_lin_limit
+            x_end_export_limit = self.x_ax.log_base ** x_end_lin_limit
         else:
-            self.x_start_export = self.x_start_export_lin 
-            self.x_end_export = self.x_end_export_lin 
+            x_start_export_limit = self.x_start_lin_limit
+            x_end_export_limit = self.x_end_lin_limit
 
-        # FIXME: This limits the number of points first when limits are
+        if self.autorange_export:
+            self.x_start_export = x_start_export
+            self.x_end_export = x_end_export
+        else:
+            if (    self.x_start_export < x_start_export
+                    or self.x_end_export > x_end_export):
+                self.export_range_warning.emit()
+
+        # FIXME: This limits the number of points only when limits are
         # modified. Is this a good idea?
         self.update_n_pts_export()
-        self.update_x_step_export()
+        #self.config_changed.emit()
 
-    def update_x_step_export(self):
-        n_pts = self.n_pts_i_export
+    @pyqtSlot(int)
+    def update_n_pts_export(self, n_pts=None):
+        if n_pts is None:
+            n_pts = self.n_pts_i_export
         if n_pts > 1:
             self.x_step_export = max(
                     self.x_step_export_min,
                     (self.x_end_export - self.x_start_export) / (n_pts - 1)
                     )
+        self.config_changed.emit()
 
-    def update_n_pts_export(self):
-        x_step = self.x_step_export
+    @pyqtSlot(float)
+    def update_x_step_export(self, x_step=None):
+        if x_step is None:
+            x_step = self.x_step_export
         if x_step > 0:
             self.n_pts_i_export = min(
                     self.n_pts_i_export_max,
                     1 + int((self.x_end_export - self.x_start_export) / x_step)
                     )
+        self.config_changed.emit()
 
 
     def axes_setup_is_complete(self) -> bool:
@@ -585,23 +614,17 @@ class Trace(QObject):
             if y_ax.log_scale:
                 ##### CASE 1: dual logarithmic scale
                 # Transform points Y coordinates back to log scale
-                self.pts = np.power(
-                        (x_ax.log_base, y_ax.log_base),
-                        self.pts_lin
-                        )
+                self.pts = (x_ax.log_base, y_ax.log_base) ** self.pts_lin
                 # Interpolation function applied to logarithmised X values
                 # and also post-exponentiated
-                self.f_interp = lambda x: np.power(
-                        x_ax.log_base,
+                self.f_interp = lambda x: x_ax.log_base ** (
                         self.f_interp_lin(np.log(x) / np.log(x_ax.log_base))
                         )
             else:
                 ##### CASE 2: X axis only logarithmic scale
                 # Transform points X coordinates back to log scale
-                self.pts = np.power(
-                        (x_ax.log_base, 1),
-                        self.pts_lin
-                        )
+                self.pts = self.pts_lin.copy()
+                self.pts[:,0] = np.power(x_ax.log_base, self.pts_lin[:,0])
                 # Interpolation function applied to logarithmised X values
                 self.f_interp = lambda x: self.f_interp_lin(
                         # This seems to perform better than np.emath.logn
@@ -611,15 +634,10 @@ class Trace(QObject):
             if y_ax.log_scale:
                 ##### CASE 3: Y axis only logarithmic scale
                 # Transform points Y coordinates back to log scale
-                self.pts = np.power(
-                        (1, y_ax.log_base),
-                        self.pts_lin
-                        )
+                self.pts = self.pts_lin.copy()
+                self.pts[:,1] = y_ax.log_base ** self.pts_lin
                 # Interpolation function post-exponentiation only
-                self.f_interp = lambda x: np.power(
-                        y_ax.log_base,
-                        self.f_interp_lin(x)
-                        )
+                self.f_interp = lambda x: y_ax.log_base ** self.f_interp_lin(x)
             else:
                 ##### CASE 4: no logarithmic scale
                 self.pts = self.pts_lin.copy()
