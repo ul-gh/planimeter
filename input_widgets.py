@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
         QTableWidget, QTableWidgetItem
         )
 
-class ExportWidget(QWidget):
+class ExportSettingsBox(QWidget):
     def __init__(self, parent, model):
         super().__init__(parent)
         ######### Shortcuts to the data model
@@ -33,51 +33,34 @@ class ExportWidget(QWidget):
         self.group_export = QGroupBox("Trace Export Settings")
         group_export_layout = QHBoxLayout(self.group_export)
         # Group export contents
-        self.btn_do_export = StyledButton("Do Data Export", self)
-        self.x_start_exportw = SciLineEdit(
-                self.x_start_export, "X Axis Start Value", model.num_fmt)
-        self.x_end_exportw = SciLineEdit(
-                self.x_end_export, "X Axis End Value", model.num_fmt)
-        self.btn_lin_export = QRadioButton("Lin")
-        self.btn_log_export = QRadioButton("Log")
-        self.btn_lin_x.setChecked(not model.log_scale_export)
-        self.btn_log_x.setChecked(model.log_scale_export)
-        group_x_layout.addWidget(self.x_start_exportw)
-        group_x_layout.addWidget(self.x_end_exportw)
-       # FIXME 
-
-        # Store plot config button
-        self.btn_store_config = QCheckBox("Store Config")
-        self.btn_store_config.setChecked(self.model.store_ax_conf)
-
-        # Pick traces buttons
-        self.btns_pick_trace = (
-                NumberedButton(0, "Pick\nTrace 1", self),
-                NumberedButton(1, "Pick\nTrace 2", self),
-                NumberedButton(2, "Pick\nTrace 3", self),
-                )
-        
         # Export Data button
         self.btn_export = StyledButton("Export\nData", self)
 
-        
-        # This is all input boxes plus label
-        inputw_layout = QHBoxLayout(self)
-        inputw_layout.addWidget(self.group_x)
-        inputw_layout.addWidget(self.group_y)
-        inputw_layout.addWidget(self.btn_store_config)
-        for i in self.btns_pick_trace:
-            i.setAutoExclusive(True)
-            inputw_layout.addWidget(i)
-        inputw_layout.addWidget(self.btn_export)
+        self.x_start_exportw = SciLineEdit(
+                model.x_start_export, "X Axis Start Value", model.num_fmt)
+        self.x_end_exportw = SciLineEdit(
+                model.x_end_export, "X Axis End Value", model.num_fmt)
+        self.btn_lin_export = QRadioButton("Lin")
+        self.btn_log_export = QRadioButton("Log")
+        self.btn_lin_export.setChecked(not model.log_scale_export)
+        self.btn_log_export.setChecked(model.log_scale_export)
+        group_export_layout.addWidget(self.x_start_exportw)
+        group_export_layout.addWidget(self.x_end_exportw)
+        group_export_layout.addWidget(self.btn_lin_export)
+        group_export_layout.addWidget(self.btn_log_export)
+        group_export_layout.addWidget(self.btn_export)
+       # FIXME 
 
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.group_export)
         ########## Initialise view from model
-        self.update_axes_view()
+        self.update_export_view()
 
 
     ########## Slots
     @pyqtSlot()
-    def update_axes_view(self):
+    def update_export_view(self):
+        pass
  
 
 
@@ -91,6 +74,7 @@ class TraceConfTable(QTableWidget):
         self.col_xend = headers.index("X End")
         n_traces = len(model.traces)
         n_headers = len(headers)
+        self.btns_pick_trace = []
         super().__init__(n_traces, n_headers, parent)
         self.setHorizontalHeaderLabels(headers)
         # Data Export options
@@ -103,9 +87,10 @@ class TraceConfTable(QTableWidget):
         for row, tr in enumerate(model.traces):
             name = QTableWidgetItem(tr.name)
             btn_pick_trace = NumberedButton(row, f"Pick Trace {row+1}", self)
+            self.btns_pick_trace.append(btn_pick_trace)
             checkbox_export = CenteredCheckbox(self)
-            x_start = QTableWidgetItem(f"{tr.x_start_export}")
-            x_end = QTableWidgetItem(f"{tr.x_end_export}")
+            #x_start = QTableWidgetItem(f"{tr.x_start_export}")
+            #x_end = QTableWidgetItem(f"{tr.x_end_export}")
             combo_i_type = QComboBox(self)
             combo_i_type.addItems(i_types_text)
             combo_n_interp = QComboBox(self)
@@ -113,8 +98,8 @@ class TraceConfTable(QTableWidget):
             self.setItem(row, 0, name)
             self.setCellWidget(row, 1, btn_pick_trace)
             self.setCellWidget(row, 2, checkbox_export)
-            self.setItem(row, 3, x_start)
-            self.setItem(row, 4, x_end)
+            #self.setItem(row, 3, x_start)
+            #self.setItem(row, 4, x_end)
             self.setCellWidget(row, 5, combo_i_type)
             self.setCellWidget(row, 6, combo_n_interp)
 
@@ -215,14 +200,14 @@ class AxConfWidget(QWidget):
         self.btn_store_config.setChecked(self.model.store_ax_conf)
 
         # Pick traces buttons
-        self.btns_pick_trace = (
-                NumberedButton(0, "Pick\nTrace 1", self),
-                NumberedButton(1, "Pick\nTrace 2", self),
-                NumberedButton(2, "Pick\nTrace 3", self),
-                )
+        #self.btns_pick_trace = (
+        #        NumberedButton(0, "Pick\nTrace 1", self),
+        #        NumberedButton(1, "Pick\nTrace 2", self),
+        #        NumberedButton(2, "Pick\nTrace 3", self),
+        #        )
         
         # Export Data button
-        self.btn_export = StyledButton("Export\nData", self)
+        #self.btn_export = StyledButton("Export\nData", self)
 
         
         # This is all input boxes plus label
@@ -230,10 +215,10 @@ class AxConfWidget(QWidget):
         inputw_layout.addWidget(self.group_x)
         inputw_layout.addWidget(self.group_y)
         inputw_layout.addWidget(self.btn_store_config)
-        for i in self.btns_pick_trace:
-            i.setAutoExclusive(True)
-            inputw_layout.addWidget(i)
-        inputw_layout.addWidget(self.btn_export)
+        #for i in self.btns_pick_trace:
+        #    i.setAutoExclusive(True)
+        #    inputw_layout.addWidget(i)
+        #inputw_layout.addWidget(self.btn_export)
 
         ########## Initialise view from model
         self.update_axes_view()
@@ -287,7 +272,7 @@ class AxConfWidget(QWidget):
         for i in self.btns_pick_trace:
             i.setChecked(False)
         # Set focus to the default in order to unfocus all other buttons
-        self.btn_export.setFocus()
+        #self.btn_export.setFocus()
 
 
 

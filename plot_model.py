@@ -50,6 +50,8 @@ class DataModel(QObject):
     # Since the input data is normally set by the view itself, a redraw of raw
     # input data is not performed when this signal is emitted.
     output_data_changed = pyqtSignal([], [int])
+    # Mainly used for configuring export options
+    export_options_changed = pyqtSignal()
     # This is re-emitted from the traces and triggers a re-display of the raw
     # (pixel-space) input points. This can be indexed with a trace number.
     redraw_tr_pts_px = pyqtSignal([], [int])
@@ -87,15 +89,15 @@ class DataModel(QObject):
         self.x_start_export = NaN
         self.x_end_export = NaN
         self.log_scale_export = False
-        # Number of X-axis points of a linear interpolation grid
-        self.update_n_pts_export(conf.model_conf.n_pts_i_export)
         # Number of X-axis points per decade in case of log X grid
         self.n_pts_i_export_dec = conf.model_conf.n_pts_i_export_dec
         # Maximum number of export points for user input verification
         self.n_pts_i_export_max = conf.model_conf.n_pts_i_export_max
         # Step size between two points on the interpolation grid
-        self.update_x_step_export(conf.model_conf.x_step_export)
         self.x_step_export_min = conf.model_conf.x_step_export_min
+        # Number of X-axis points of a linear interpolation grid
+        self.update_n_pts_export(conf.model_conf.n_pts_i_export)
+        self.update_x_step_export(conf.model_conf.x_step_export)
         ##### X-axis grid in data coordinates used for export
         self.x_grid_export = None
 
@@ -255,7 +257,7 @@ class DataModel(QObject):
         # FIXME: This limits the number of points only when limits are
         # modified. Is this a good idea?
         self.update_n_pts_export()
-        #self.config_changed.emit()
+        #self.export_options_changed.emit()
 
     @pyqtSlot(int)
     def update_n_pts_export(self, n_pts=None):
@@ -266,7 +268,7 @@ class DataModel(QObject):
                     self.x_step_export_min,
                     (self.x_end_export - self.x_start_export) / (n_pts - 1)
                     )
-        self.config_changed.emit()
+        self.export_options_changed.emit()
 
     @pyqtSlot(float)
     def update_x_step_export(self, x_step=None):
@@ -277,7 +279,7 @@ class DataModel(QObject):
                     self.n_pts_i_export_max,
                     1 + int((self.x_end_export - self.x_start_export) / x_step)
                     )
-        self.config_changed.emit()
+        self.export_options_changed.emit()
 
 
     def axes_setup_is_complete(self) -> bool:

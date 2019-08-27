@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
         )
 
 from mpl_widget import MplWidget
-from input_widgets import AxConfWidget, TraceConfTable
+from input_widgets import AxConfWidget, TraceConfTable, ExportSettingsBox
 from plot_model import DataModel
 
 
@@ -61,6 +61,9 @@ class Digitizer(QWidget):
         # Jupyter Console button
         self.btn_console = QPushButton(
             "Launch Jupyter Console\nIn Application Namespace", self)
+        
+        # Export options box
+        self.export_settings_box = ExportSettingsBox(self, model)
 
         # Traces properties are displayed in a QTableWidget
         self.tr_conf_table = TraceConfTable(self, model)
@@ -88,6 +91,7 @@ class Digitizer(QWidget):
         # Right side layout just the same
         io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
+        io_splitter.addWidget(self.export_settings_box)
         io_splitter.addWidget(self.tr_conf_table)
         io_splitter.addWidget(self.btn_console)
         #io_splitter.addWidget(self.txtw)
@@ -135,7 +139,7 @@ class Digitizer(QWidget):
         # to set the corresponding operation mode. Signals emit bool values.
         inputw.btn_pick_x.clicked.connect(mplw.toggle_setup_x_axis)
         inputw.btn_pick_y.clicked.connect(mplw.toggle_setup_y_axis)
-        for btn in inputw.btns_pick_trace:
+        for btn in inputw.export_settings_box.btns_pick_trace:
             btn.i_clicked.connect(mplw.toggle_add_trace_pts_mode)
 
         ##### Input widget signals also trigger model updates of the axes config
