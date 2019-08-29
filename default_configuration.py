@@ -30,13 +30,11 @@ class DATA_MODEL():
     """
     ########## Export options
     # Number of X-axis interpolation points for data export for linear X grid
-    n_pts_i_export = 100
+    n_pts_export = 100
     # Number of X-axis interpolation points for data export for log X grid
-    n_pts_i_export_dec = 100
+    n_pts_dec_export = 100
     # Maximum number of export points
-    n_pts_i_export_max = 100000
-    x_step_export = float("NaN")
-    x_step_export_min = 1e-18
+    n_pts_export_max = 100000
     # Absolute tolerance for testing if values are close to zero
     atol = 1e-18
     # Default trace names and colors

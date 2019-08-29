@@ -88,18 +88,16 @@ class DataModel(QObject):
         # intersection of definition ranges of all traces marked for export.
         self.x_start_export = NaN
         self.x_end_export = NaN
-        self.log_scale_export = False
+        self.x_export_log_scale = False
         # Number of X-axis points per decade in case of log X grid
-        self.n_pts_i_export_dec = conf.model_conf.n_pts_i_export_dec
+        self.n_pts_dec_export = conf.model_conf.n_pts_dec_export
         # Maximum number of export points for user input verification
-        self.n_pts_i_export_max = conf.model_conf.n_pts_i_export_max
-        # Step size between two points on the interpolation grid
-        self.x_step_export_min = conf.model_conf.x_step_export_min
+        self.n_pts_export_max = conf.model_conf.n_pts_export_max
         # Number of X-axis points of a linear interpolation grid
-        self.update_n_pts_export(conf.model_conf.n_pts_i_export)
+        self.update_n_pts_export(conf.model_conf.n_pts_export)
         self.update_x_step_export(conf.model_conf.x_step_export)
         ##### X-axis grid in data coordinates used for export
-        self.x_grid_export = None
+        self.x_grid_export = None # Optional: np.ndarray
 
         ##### Common settings
         # Python string format code for display of numbers
@@ -150,83 +148,107 @@ class DataModel(QObject):
             self._calculate_coordinate_transformation()
 
     ########## GUI scope and public methods
+    @pyqtSlot()
     def export_traces(self):
         """Interpolate data from the given trace numbers using a common
         interpolation grid with n_interp X-axis points, spaced evenly
         in linearised data coordinate units between x_start and x_end
-        and return the resulting data as columns of length n_interp.
+        and return the resulting data as rows.
         
-        First column: X-axis interpolation values.
+        Parameters from DataModel instance:
+            self.traces : Trace[*]
+                One or more traces (zero-indexed) for which to
+                interpolate and export data
+            self.x_grid_export : np.ndarray
+                Common X axis values for all traces
         
-        Parameters:
-        * trace_nums : int
-            One or more trace numbers (zero-indexed) for which to
-            interpolate and export data
-        n_interp : int, optional
-            Number of interpolation points on the common X-axis
-        x_start : float, optional
-            Start of the data range on the X-axis used for export
-        x_end : float, optional
-            End of the data range on the X-axis used for export
+        Outputs:
+            self.output_arr : np.ndarray
+                Output trace data with X axis values in first row,
+                traces data in following rows
         
-        When number of points, start or end values are not specified,
-        instance data set by the GUI or from config file is used.
-
         Note:
         For generating the export data, the cubic spline interpolation
-        polynomial representation of each trace is used.
+        polynomial representation of each trace is used by default.
         This function needs at least four data points from each trace.
 
         If no interpolation data is available for a trace, a column of
         NaN values is returned for that trace.
         """
-        x_grid = self.x_grid_export
-        n_interp = len(x_grid)
-        trace_funcs = [tr.f_interp for tr in self.traces if tr.export]
-        output_arr = np.empty((1+len(trace_funcs), n_interp))
-        output_arr[0] = x_grid
-        for row, func in enumerate(trace_funcs, start=1):
-            output_arr[row] = func(x_grid)
-        self.output_arr = output_arr
-
-    def generate_export_grid(self, x_start, x_end, log_scale=False):
-        """Generate an interpolation grid for trace data export.
-
-        This can be evenly spaced points in linear or logarithmic
-        data space.
-        """
-        if log_scale:
+        ######### Generate export X axis grid
+        if self.x_export_log_scale:
             # Grid is specified by number of points per decade; thus using log10
-            x_start_lin = np.log10(x_start)
-            x_end_lin = np.log10(x_end)
-            n_dec = x_end_lin - x_start_lin
-            N_tot = n_dec * self.n_pts_i_export_dec
-            self.x_grid_export = np.logspace(x_start_lin, x_end_lin, N_tot)
+            x_start_lin = np.log10(self.x_start_export)
+            x_end_lin = np.log10(self.x_end_export)
+            x_grid_export = np.logspace(
+                    x_start_lin, x_end_lin, self.n_pts_export)
         else:
-            self.x_grid_export = np.arange(x_start, x_end, self.x_step_export)
+            # self.x_step_export is pre-calculated by the update_export_range
+            # method or set by the user.
+            x_grid_export = np.arange(
+                    self.x_start_export, self.x_end_export, self.x_step_export)
+        # Anyways:
+        self.x_grid_export = x_grid_export
+
+        ########## Calculate export traces Y data using interpolation function
+        n_interp = x_grid_export.shape[0]
+        interp_funcs = [tr.f_interp for tr in self.traces if tr.export]
+        output_arr = np.empty((1+len(trace_funcs), n_interp))
+        output_arr[0] = x_grid_export
+        for row, f_interp in enumerate(interp_funcs, start=1):
+            output_arr[row] = f_interp(x_grid_export)
+        self.output_arr = output_arr
 
     @pyqtSlot(float)
     def set_x_start_export(self, x_start):
+        if isclose(self.x_end_export - x_start, 0.0, atol=self.atol):
+            self.value_error.emit("X axis section must not be zero length")
+            return
         self.autorange_export = False
         self.x_start_export = x_start
-        self.update_export_settings()
+        self.update_export_range()
 
     @pyqtSlot(float)
     def set_x_end_export(self, x_end):
+        if isclose(x_end - self.x_start_export, 0.0, atol=self.atol):
+            self.value_error.emit("X axis section must not be zero length")
+            return
         self.autorange_export = False
         self.x_end_export = x_end
-        self.update_export_settings()
+        self.update_export_range()
 
     @pyqtSlot(bool)
     def set_autorange_export(self, state=True):
         self.autorange_export = state
+        self.update_export_range()
 
-    @pyqtSlot()
-    def update_export_settings(self):
-        # Limit the range of the X axis to be used for data export to the
-        # intersection of definition ranges of all traces marked for export.
-        # This is to avoid strange results due to uncalled-for extrapolation
-        # when no extrapolation function is defined.
+    def update_export_range(self):
+        """Set or check export X values range.
+
+        Parameters from DataModel instance:
+            self.x_start_export : float
+                Start of the data range on the X-axis used for export
+            self.x_end_export : float
+                End of the data range on the X-axis used for export
+            self.x_export_log_scale : bool
+                True when output with log-scale X axis is requested
+            
+            FIXME: incomplete...
+
+        Output:
+            self.x_grid_export : np.ndarray
+               Evenly spaced points in linear or logarithmic data space
+
+        When self.autorange_export is set (default), the X axis value
+        range is automatically determined as the intersection of
+        definition ranges of all traces marked for export.
+
+        In other words, data is not extrapolated.
+
+        When manual limits are entered, this emits an
+        export_range_warning if the range results in extrapolation.
+        """
+        ########## Calculate interpolation limits
         try:
             x_start_lin_limit = max(
                     # max() takes a generator expression
@@ -246,40 +268,82 @@ class DataModel(QObject):
             x_start_export_limit = self.x_start_lin_limit
             x_end_export_limit = self.x_end_lin_limit
 
+        ########## Autoranging if activated, else range checking only
         if self.autorange_export:
-            self.x_start_export = x_start_export
-            self.x_end_export = x_end_export
+            # Set class attribute to enable GUI display of limits
+            self.x_start_export = x_start_export_limit
+            self.x_end_export = x_end_export_limit
         else:
-            if (    self.x_start_export < x_start_export
-                    or self.x_end_export > x_end_export):
+            if (    self.x_start_export < x_start_export_limit
+                    or self.x_end_export > x_end_export_limit
+                    ):
                 self.export_range_warning.emit()
 
-        # FIXME: This limits the number of points only when limits are
-        # modified. Is this a good idea?
+        ########## Update total number of output points
+        # FIXME: This prefers keeping the linear X spacing and modifying
+        # the total number of points when changing export limits.
+        # Perhaps add a config option?
         self.update_n_pts_export()
-        #self.export_options_changed.emit()
 
-    @pyqtSlot(int)
-    def update_n_pts_export(self, n_pts=None):
-        if n_pts is None:
-            n_pts = self.n_pts_i_export
-        if n_pts > 1:
-            self.x_step_export = max(
-                    self.x_step_export_min,
-                    (self.x_end_export - self.x_start_export) / (n_pts - 1)
+    def update_n_pts_export(self):
+        # Update total number of output points
+        if self.x_export_log_scale:
+            x_start_lin = np.log10(self.x_start_export)
+            x_end_lin = np.log10(self.x_end_export)
+            n_dec = x_end_lin - x_start_lin
+            N_tot = n_dec * self.n_pts_dec_export
+            self.n_pts_export = min(
+                    self.n_pts_export_max,
+                    N_tot
                     )
-        self.export_options_changed.emit()
-
-    @pyqtSlot(float)
-    def update_x_step_export(self, x_step=None):
-        if x_step is None:
+        else:
             x_step = self.x_step_export
-        if x_step > 0:
-            self.n_pts_i_export = min(
-                    self.n_pts_i_export_max,
+            self.n_pts_export = min(
+                    self.n_pts_export_max,
                     1 + int((self.x_end_export - self.x_start_export) / x_step)
                     )
         self.export_options_changed.emit()
+
+    def update_n_pts_dec_export(self):
+        x_start_lin = np.log10(self.x_start_export)
+        x_end_lin = np.log10(self.x_end_export)
+        n_dec = x_end_lin - x_start_lin
+        self.n_pts_dec_export = self.n_pts_export / n_dec
+        self.export_options_changed.emit()
+
+
+    def update_x_step_export(self):
+        x_step = (self.x_end_export - self.x_start_export) / self.n_pts_export
+        self.export_options_changed.emit()
+
+    @pyqtSlot(int)
+    def set_n_pts_export(self, n_pts=None):
+        if n_pts is None or n_pts > self.n_pts_export_max:
+            n_pts = self.n_pts_export_max
+        if n_pts < 1:
+            n_pts = 1
+        if x_export_log_scale:
+            self.update_n_pts_dec_export()
+        else:
+            self.update_x_step_export()
+
+    @pyqtSlot(float)
+    def set_x_step_export(self, x_step):
+        # Only to be called in linear export mode
+        x_step_min = (self.x_end_export - self.x_start_export
+                      ) / self.n_pts_export_max
+        self.x_step_export = max(x_step_min, x_step)
+        self.update_n_pts_export()
+
+    @pyqtSlot(float)
+    def set_n_pts_dec_export(self, n_pts_dec):
+        # Only to be called in log export mode
+        x_start_lin = np.log10(self.x_start_export)
+        x_end_lin = np.log10(self.x_end_export)
+        n_dec = x_end_lin - x_start_lin
+        N_tot = n_dec * n_pts_dec
+        self.n_pts_dec_export = min(N_tot, self.n_pts_export_max)
+        self.update_n_pts_export()
 
 
     def axes_setup_is_complete(self) -> bool:
