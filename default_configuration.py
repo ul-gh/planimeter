@@ -52,7 +52,11 @@ class TRACE():
     """
     # Default number of X axis points for GUI display interpolation only
     n_pts_i_view = 100
-    # Kind of interpolation function used for a new trace by default
+    # Output data as function representation can be one of:
+    # "plain", "integral" or "derivative".
+    post_processing = "plain"
+    # Default interpolation type for view and export can be
+    # "linear" or "cubic". Default is "cubic".
     interp_type = "cubic"
     # Trace raw points format, same for all traces
     pts_fmt = {"picker": 10.0, "linestyle": ":",

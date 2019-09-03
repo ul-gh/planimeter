@@ -42,8 +42,8 @@ class ExportSettingsBox(QWidget):
                 model.x_end_export, "X Axis End Value", model.num_fmt)
         self.btn_lin_export = QRadioButton("Lin")
         self.btn_log_export = QRadioButton("Log")
-        self.btn_lin_export.setChecked(not model.log_scale_export)
-        self.btn_log_export.setChecked(model.log_scale_export)
+        self.btn_lin_export.setChecked(not model.x_export_log_scale)
+        self.btn_log_export.setChecked(model.x_export_log_scale)
         group_export_layout.addWidget(self.x_start_exportw)
         group_export_layout.addWidget(self.x_end_exportw)
         group_export_layout.addWidget(self.btn_lin_export)
@@ -104,7 +104,7 @@ class TraceConfTable(QTableWidget):
             self.setCellWidget(row, 6, combo_n_interp)
 
         ##### Signals
-        self.itemSelectionChanged.connect(self._handle_selection)
+        #self.itemSelectionChanged.connect(self._handle_selection)
 
     def _handle_selection(self):
         self.sel_traces = sel_traces = {
@@ -141,6 +141,14 @@ class TraceConfTable(QTableWidget):
         for i in range(self.n_traces):
             self.item(i, col_xstart).setText(f"{self.x_start_export}")
             self.item(i, col_xend).setText(f"{self.x_end_export}")
+
+    @pyqtSlot()
+    def uncheck_all_buttons(self):
+        for i in self.btns_pick_trace:
+            i.setChecked(False)
+        # Set focus to the default in order to unfocus all other buttons
+        #self.btn_export.setFocus()
+
 
 
 class AxConfWidget(QWidget):
@@ -269,8 +277,8 @@ class AxConfWidget(QWidget):
     def uncheck_all_buttons(self):
         self.btn_pick_x.setChecked(False)
         self.btn_pick_y.setChecked(False)
-        for i in self.btns_pick_trace:
-            i.setChecked(False)
+        #for i in self.btns_pick_trace:
+        #    i.setChecked(False)
         # Set focus to the default in order to unfocus all other buttons
         #self.btn_export.setFocus()
 

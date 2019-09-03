@@ -69,7 +69,7 @@ class Digitizer(QWidget):
         self.tr_conf_table = TraceConfTable(self, model)
         
         # Push buttons and axis value input fields widget.
-        self.inputw = inputw = AxConfWidget(self, model)
+        self.axconfw = axconfw = AxConfWidget(self, model)
         
         # Matplotlib widget
         self.mplw = mplw = MplWidget(self, model, conf)
@@ -85,7 +85,7 @@ class Digitizer(QWidget):
         # Left side layout is vertical widgets, divided by a splitter
         self.mplw_splitter = QSplitter(Qt.Vertical, self)
         self.mplw_splitter.setChildrenCollapsible(False)
-        self.mplw_splitter.addWidget(inputw)
+        self.mplw_splitter.addWidget(axconfw)
         self.mplw_splitter.addWidget(mplw)
 
         # Right side layout just the same
@@ -105,8 +105,8 @@ class Digitizer(QWidget):
         ########## application controller logic
         ##### Connect model state changes to update the GUI widgets
         # Update input widget immediately when axis config changes
-        model.x_ax.config_changed.connect(inputw.update_axes_view)
-        model.y_ax.config_changed.connect(inputw.update_axes_view)
+        model.x_ax.config_changed.connect(axconfw.update_axes_view)
+        model.y_ax.config_changed.connect(axconfw.update_axes_view)
         # Update traces view when model has updated data.
         # Since the input data is normally set by the view itself, a redraw
         # of raw input data is not performed when this signal is received.
@@ -121,36 +121,39 @@ class Digitizer(QWidget):
         # Error message
         model.value_error.connect(self.show_text)
 
-        ##### Matplotlib widget state is displayed on the input widget
+        ##### Matplotlib widget state is displayed on the axconf widget
         # Matplotlib widget signals a complete axis setup
-        mplw.valid_x_axis_setup.connect(inputw.btn_pick_x.set_green)
-        mplw.valid_y_axis_setup.connect(inputw.btn_pick_y.set_green)
+        mplw.valid_x_axis_setup.connect(axconfw.btn_pick_x.set_green)
+        mplw.valid_y_axis_setup.connect(axconfw.btn_pick_y.set_green)
         # This checks or unchecks the input widget buttons to reflect the
         # corresponding matplotlib widget current operating mode
-        mplw.mode_sw_default.connect(inputw.uncheck_all_buttons)
+        mplw.mode_sw_default.connect(axconfw.uncheck_all_buttons)
+        mplw.mode_sw_default.connect(self.tr_conf_table.uncheck_all_buttons)
         mplw.mode_sw_setup_x_axis.connect(
-            partial(inputw.btn_pick_x.setChecked, True))
+            partial(axconfw.btn_pick_x.setChecked, True))
         mplw.mode_sw_setup_y_axis.connect(
-            partial(inputw.btn_pick_y.setChecked, True))
-        mplw.mode_sw_add_trace_pts.connect(
-            lambda i: inputw.btns_pick_trace[i].setChecked(True))
+            partial(axconfw.btn_pick_y.setChecked, True))
 
-        ##### Input widget button signals connect in turn to matplotlib widget
+        ##### Matplotlib widget state changes also update the trace conf widget
+        mplw.mode_sw_add_trace_pts.connect(
+            lambda i: self.tr_conf_table.btns_pick_trace[i].setChecked(True))
+
+        ##### Axconf widget button signals connect in turn to matplotlib widget
         # to set the corresponding operation mode. Signals emit bool values.
-        inputw.btn_pick_x.clicked.connect(mplw.toggle_setup_x_axis)
-        inputw.btn_pick_y.clicked.connect(mplw.toggle_setup_y_axis)
-        for btn in inputw.export_settings_box.btns_pick_trace:
+        axconfw.btn_pick_x.clicked.connect(mplw.toggle_setup_x_axis)
+        axconfw.btn_pick_y.clicked.connect(mplw.toggle_setup_y_axis)
+        for btn in self.tr_conf_table.btns_pick_trace:
             btn.i_clicked.connect(mplw.toggle_add_trace_pts_mode)
 
-        ##### Input widget signals also trigger model updates of the axes config
-        inputw.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
-        inputw.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
-        inputw.btn_store_config.toggled.connect(model.set_store_config)
+        ##### Axconf widget signals also trigger model updates of axes config
+        axconfw.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
+        axconfw.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
+        axconfw.btn_store_config.toggled.connect(model.set_store_config)
         # Number input boxes. These signals emit float values.
-        inputw.xstartw.valid_number_entered.connect(model.x_ax.set_ax_start)
-        inputw.ystartw.valid_number_entered.connect(model.y_ax.set_ax_start)
-        inputw.xendw.valid_number_entered.connect(model.x_ax.set_ax_end)
-        inputw.yendw.valid_number_entered.connect(model.y_ax.set_ax_end)
+        axconfw.xstartw.valid_number_entered.connect(model.x_ax.set_ax_start)
+        axconfw.ystartw.valid_number_entered.connect(model.y_ax.set_ax_start)
+        axconfw.xendw.valid_number_entered.connect(model.x_ax.set_ax_end)
+        axconfw.yendw.valid_number_entered.connect(model.y_ax.set_ax_end)
 
         # When the splitter is clicked, release the fixed height constraint
         self.mplw_splitter.splitterMoved.connect(
