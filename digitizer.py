@@ -5,6 +5,8 @@
 License: GPL version 3
 """
 import io
+import os
+import tempfile
 from functools import partial
 
 import numpy as np
@@ -46,7 +48,12 @@ class Digitizer(QWidget):
         self.conf = conf
         # System clipboard access
         self.clipboard = QApplication.instance().clipboard()
-
+        # Filename for temporary storage of clipboard images
+        self.temp_filename = os.path.join(
+                tempfile.gettempdir(),
+                f"plot_workbench_clipboard_paste_image.png"
+                )
+        
         # Plot interactive data model
         self.model = model = DataModel(self, conf)
 
@@ -160,9 +167,6 @@ class Digitizer(QWidget):
             partial(self.txtw.setMaximumHeight, 10000))
         # Update source input image for digitizing. Argument is file path.
         self.load_image.connect(mplw.load_image)
-        # Clipboard handling
-        #self.clipboard.dataChanged.connect(self.clipboardChanged)
-
 
     def array2html(self, array, decimal_chr, num_fmt):
         """Make a HTML table with two columns from 2D numpy array
@@ -226,17 +230,13 @@ class Digitizer(QWidget):
 
 
     @pyqtSlot()
-    def clipboardChanged(self):
-        # Get the system clipboard contents
-        text = self.clipboard.text()
-        print(text)
-        self.txtw.insertPlainText(text + '\n')
-    
-    def do_clip(self):
-        buf = io.BytesIO()
-        self.fig.savefig(buf)
-        self.clipboard.setImage(QImage.fromData(buf.getvalue()))
-        buf.close()
+    def load_clipboard_image(self):
+        image = self.clipboard.image()
+        if image.isNull():
+            self.show_text("There is no image data in the system clipboard!")
+            return
+        image.save(self.temp_filename, format="png")
+        self.mplw.load_image(self.temp_filename)
 
     @pyqtSlot()
     def put_clipboard(self):
