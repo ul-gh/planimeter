@@ -17,6 +17,8 @@ import scipy.misc as misc
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
+import matplotlib.pyplot as plt
+import upylib.u_plot_format as u_format
 
 class DataModel(QObject):
     """DataModel
@@ -148,6 +150,50 @@ class DataModel(QObject):
         ########## Initialise model outputs if axes are configured
         if self.axes_setup_is_complete():
             self._calculate_coordinate_transformation()
+
+
+    def wip_export(self, tr):
+        # FIXME: Temporary solution
+        grid = np.linspace(tr.pts[0,0], tr.pts[-1,0], 100)
+        y = tr.f_interp(grid)*1e-12
+        y_int = integrate.cumtrapz(y, grid, initial=0.0)
+        x_times_y = grid * y
+        x_times_y_int = integrate.cumtrapz(x_times_y, grid, initial=0.0)
+        tr.pts_export = np.stack((grid, y), axis=1)
+        tr.pts_export_int = np.stack((grid, y_int), axis=1)
+        tr.pts_export_xy_int = np.stack((grid, x_times_y_int), axis=1)
+        
+    def wip_plot_cap_charge_e_stored(self,tr):
+        self.fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        self.fig.set_size_inches(18, 6.0)
+        u_format.plot_lin_lin_engineering(
+                ax1,
+                *tr.pts_export.T,
+                title=r"Differential Capacitance C(u)",
+                xlabel=r"U /Volts",
+                ylabel=r"C(u) /Farads",
+                #xlim=(1, 450),
+                #ylim=(0, 0.6),
+                )
+        u_format.plot_lin_lin_engineering(
+                ax2,
+                *tr.pts_export_int.T,
+                title=r"Charge Q(u), as Integral C(u) du",
+                xlabel=r"U /Volts",
+                ylabel=r"Q(u) /Coulombs",
+                #xlim=(1, 450),
+                #ylim=(0, 0.6),
+                )
+        u_format.plot_lin_lin_engineering(
+                ax3,
+                *tr.pts_export_xy_int.T,
+                title=r"C(u) Stored Energy, as Integral u*C(u) du",
+                xlabel=r"U /Volts",
+                ylabel=r"E(u) /Joules",
+                #xlim=(1, 450),
+                #ylim=(0, 0.6),
+                )
+        self.fig.tight_layout()
 
     ########## GUI scope and public methods
     @pyqtSlot()
@@ -670,7 +716,12 @@ class Trace(QObject):
             return
         # Scipy interpolate generates an interpolation function which is added
         # to this instance attriutes
-        self.f_interp_lin = interp1d(*pts.T, kind=self.interp_type)
+        self.f_interp_lin = interp1d(
+                *pts.T,
+                kind=self.interp_type,
+                fill_value="extrapolate",
+                assume_sorted=True,
+                )
         # Generate finer grid
         xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
         yvals = self.f_interp_lin(xgrid)
@@ -691,7 +742,7 @@ class Trace(QObject):
         # logarithmic scale by exponentiation if needed for each axis.
         #
         # Anyways, makes a copy to keep the original linearised coordinates.
-        if self.f_interp is None:
+        if self.f_interp_lin is None:
             return
         if x_ax.log_scale:
             if y_ax.log_scale:

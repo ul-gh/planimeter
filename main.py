@@ -89,11 +89,16 @@ class MainToolbar(NavigationToolbar2QT):
             icon_export, "Export data as CSV", self, iconText="Export CSV")
         self.act_open = QAction(
             icon_open, "Open an image file", self, iconText="Open File")
+        self.act_load_clipboard = QAction(
+            icon_open, "Load Image from Clipboard", self, iconText="From Clipboard")
         # Separator before first external API buttons
         sep = self.insertSeparator(api_first_action)
         # Inserting new buttons
-        self.insertActions(sep, [self.act_open, self.act_export_csv,
-                                 self.act_export_xlsx, self.act_put_clipboard])
+        self.insertActions(
+                sep,
+                [self.act_load_clipboard, self.act_open, self.act_export_csv,
+                     self.act_export_xlsx, self.act_put_clipboard],
+                )
 
 
 class MainWindow(QMainWindow):
@@ -132,10 +137,12 @@ class MainWindow(QMainWindow):
 
         ########## Connect main window signals
         # Main toolbar signals
+        self.main_tb.act_load_clipboard.triggered.connect(
+                self.cw.load_clipboard_image)
         self.main_tb.act_open.triggered.connect(self.dlg_open_image.open)
         self.main_tb.act_export_csv.triggered.connect(self.dlg_export_csv.open)
         self.main_tb.act_export_xlsx.triggered.connect(
-            self.dlg_export_xlsx.open)
+                self.dlg_export_xlsx.open)
         self.main_tb.act_put_clipboard.triggered.connect(self.cw.put_clipboard)
         
         # Embedded Jupyter Console Button signal
