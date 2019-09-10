@@ -29,12 +29,19 @@ class DATA_MODEL():
     """Settings for all traces, axes etc
     """
     ########## Export options
+    # Export grid can be logarithmic independent from original axes scale
+    x_log_scale_export = False
+    # Fixed number of points is exported by default
+    fixed_n_pts_export = True
     # Number of X-axis interpolation points for data export for linear X grid
     n_pts_export = 100
     # Number of X-axis interpolation points for data export for log X grid
     n_pts_dec_export = 100
     # Maximum number of export points
     n_pts_export_max = 100000
+    # Alternatively to fixed number of points, a custom set X axis increment
+    # can be used.
+    x_step_export = None
     # Absolute tolerance for testing if values are close to zero
     atol = 1e-18
     # Default trace names and colors
