@@ -20,7 +20,9 @@ from PyQt5.QtWidgets import (
         )
 
 from mpl_widget import MplWidget
-from input_widgets import AxConfWidget, TraceConfTable, ExportSettingsBox
+from digitizer_widgets import (
+        AxConfWidget, TraceConfTable, ExportSettingsBox, CoordinateDisplay,
+        )
 from plot_model import DataModel
 
 
@@ -61,13 +63,16 @@ class Digitizer(QWidget):
         self.messagebox = QMessageBox(self)
         
         # Text widget
-        self.txtw = QPlainTextEdit()
-        self.txtw.insertPlainText("Clipboard Copy and Paste.")
+        #self.txtw = QPlainTextEdit()
+        #self.txtw.insertPlainText("Clipboard Copy and Paste.")
         #self.txtw.setFixedWidth(80)
 
         # Jupyter Console button
         self.btn_console = QPushButton(
             "Launch Jupyter Console\nIn Application Namespace", self)
+
+        # Data Coordinate Display and Edit Box
+        self.coordinate_display = CoordinateDisplay(self, model)
         
         # Export options box
         self.export_settings_box = ExportSettingsBox(self, model)
@@ -98,6 +103,7 @@ class Digitizer(QWidget):
         # Right side layout just the same
         io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
+        io_splitter.addWidget(self.coordinate_display)
         io_splitter.addWidget(self.export_settings_box)
         io_splitter.addWidget(self.tr_conf_table)
         io_splitter.addWidget(self.btn_console)
@@ -163,8 +169,8 @@ class Digitizer(QWidget):
         axconfw.yendw.valid_number_entered.connect(model.y_ax.set_ax_end)
 
         # When the splitter is clicked, release the fixed height constraint
-        self.mplw_splitter.splitterMoved.connect(
-            partial(self.txtw.setMaximumHeight, 10000))
+#        self.mplw_splitter.splitterMoved.connect(
+#            partial(self.txtw.setMaximumHeight, 10000))
         # Update source input image for digitizing. Argument is file path.
         self.load_image.connect(mplw.load_image)
 

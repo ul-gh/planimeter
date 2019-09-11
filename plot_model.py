@@ -140,7 +140,7 @@ class DataModel(QObject):
             tr.pts_changed.connect(
                 partial(self.calculate_live_outputs, i, False))
             # Export range update
-            tr.pts_changed.connect(self.update_export_range)
+            tr.pts_changed.connect(self.check_or_update_export_range)
             # When points are added or deleted, not only update outputs but
             # re-sort the points and update the view of the raw points
             tr.pts_added_deleted.connect(
@@ -148,7 +148,7 @@ class DataModel(QObject):
             tr.pts_added_deleted.connect(
                 partial(self.redraw_tr_pts_px[int].emit, i))
             # Export range update
-            tr.pts_added_deleted.connect(self.update_export_range)
+            tr.pts_added_deleted.connect(self.check_or_update_export_range)
             # The errors are also re-emitted.
             tr.value_error.connect(self.value_error)
 
@@ -265,7 +265,7 @@ class DataModel(QObject):
             return
         self.autorange_export = False
         self.x_start_export = x_start
-        self.update_export_range()
+        self.check_or_update_export_range()
 
     @pyqtSlot(float)
     def set_x_end_export(self, x_end: float):
@@ -274,7 +274,7 @@ class DataModel(QObject):
             return
         self.autorange_export = False
         self.x_end_export = x_end
-        self.update_export_range()
+        self.check_or_update_export_range()
 
     @pyqtSlot(bool)
     def set_autorange_export(self, state=True):
