@@ -17,17 +17,21 @@ from PyQt5.QtWidgets import (
         QTableWidget, QTableWidgetItem, QSizePolicy
         )
 
-class CoordinateDisplay(QGroupBox):
+class DataCoordProps(QGroupBox):
     def __init__(self, parent, model):
         super().__init__("Data Coordinate System", parent)
         self.model = model
 
         layout = QGridLayout(self)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+#        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
 
         self.cursor_xy_label = QLabel("Cursor X and Y data:")
         self.cursor_x_display = QLineEdit("NaN")
         self.cursor_y_display = QLineEdit("NaN")
+        self.cursor_x_display.setReadOnly(True)
+        self.cursor_y_display.setReadOnly(True)
+        self.cursor_x_display.setStyleSheet("background-color: LightGrey")
+        self.cursor_y_display.setStyleSheet("background-color: LightGrey")
         self.x_range_label = QLabel("Canvas X Data Extent:")
         self.x_min_edit = QLineEdit()
         self.x_max_edit = QLineEdit()
@@ -55,7 +59,7 @@ class ExportSettingsBox(QGroupBox):
         self.y_ax = model.y_ax
 
         layout = QHBoxLayout(self)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+#        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
 
         # Export Data button
         self.btn_export = StyledButton("Export\nData", self)
@@ -95,7 +99,7 @@ class TraceConfTable(QTableWidget):
         n_headers = len(headers)
         self.btns_pick_trace = []
         super().__init__(n_traces, n_headers, parent)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+#        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
         self.setHorizontalHeaderLabels(headers)
         # Data Export options
         ###

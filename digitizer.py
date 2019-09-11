@@ -15,13 +15,13 @@ from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
         QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-        QSplitter, QPlainTextEdit, QMessageBox,
+        QSplitter, QSizePolicy, QPlainTextEdit, QMessageBox,
         QPushButton, QCheckBox
         )
 
 from mpl_widget import MplWidget
 from digitizer_widgets import (
-        AxConfWidget, TraceConfTable, ExportSettingsBox, CoordinateDisplay,
+        AxConfWidget, TraceConfTable, ExportSettingsBox, DataCoordProps,
         )
 from plot_model import DataModel
 
@@ -62,23 +62,18 @@ class Digitizer(QWidget):
         # General text or warning message
         self.messagebox = QMessageBox(self)
         
-        # Text widget
-        #self.txtw = QPlainTextEdit()
-        #self.txtw.insertPlainText("Clipboard Copy and Paste.")
-        #self.txtw.setFixedWidth(80)
-
         # Jupyter Console button
-        self.btn_console = QPushButton(
-            "Launch Jupyter Console\nIn Application Namespace", self)
+        self.btn_console = btn_console = QPushButton(
+                "Launch Jupyter Console\nIn Application Namespace", self)
 
         # Data Coordinate Display and Edit Box
-        self.coordinate_display = CoordinateDisplay(self, model)
+        self.data_coord_props = data_coord_props = DataCoordProps(self, model)
         
         # Export options box
-        self.export_settings_box = ExportSettingsBox(self, model)
+        self.export_settings = export_settings = ExportSettingsBox(self, model)
 
         # Traces properties are displayed in a QTableWidget
-        self.tr_conf_table = TraceConfTable(self, model)
+        self.tr_conf_table = tr_conf_table = TraceConfTable(self, model)
         
         # Push buttons and axis value input fields widget.
         self.axconfw = axconfw = AxConfWidget(self, model)
@@ -89,25 +84,30 @@ class Digitizer(QWidget):
 
         # Layout is two columns of widgets, right is data output and console,
         # left is inputwidget and mpl_widget
-        hsplitter = QSplitter(Qt.Horizontal, self)
+        self.hsplitter = hsplitter = QSplitter(Qt.Horizontal, self)
         hsplitter.setChildrenCollapsible(False)
         layout = QHBoxLayout(self)
         layout.addWidget(hsplitter)
 
         # Left side layout is vertical widgets, divided by a splitter
-        self.mplw_splitter = QSplitter(Qt.Vertical, self)
-        self.mplw_splitter.setChildrenCollapsible(False)
-        self.mplw_splitter.addWidget(axconfw)
-        self.mplw_splitter.addWidget(mplw)
+        self.mplw_splitter = mplw_splitter = QSplitter(Qt.Vertical, self)
+        mplw_splitter.setChildrenCollapsible(False)
+        self.set_v_stretch(axconfw, 0)
+        self.set_v_stretch(mplw, 1)
+        mplw_splitter.addWidget(axconfw)
+        mplw_splitter.addWidget(mplw)
 
         # Right side layout just the same
-        io_splitter = QSplitter(Qt.Vertical, self)
+        self.io_splitter = io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
-        io_splitter.addWidget(self.coordinate_display)
-        io_splitter.addWidget(self.export_settings_box)
-        io_splitter.addWidget(self.tr_conf_table)
-        io_splitter.addWidget(self.btn_console)
-        #io_splitter.addWidget(self.txtw)
+        self.set_v_stretch(data_coord_props, 0)
+        self.set_v_stretch(export_settings, 0)
+        self.set_v_stretch(tr_conf_table, 1)
+        self.set_v_stretch(btn_console, 0)
+        io_splitter.addWidget(data_coord_props)
+        io_splitter.addWidget(export_settings)
+        io_splitter.addWidget(tr_conf_table)
+        io_splitter.addWidget(btn_console)
 
         # All combined
         hsplitter.addWidget(self.mplw_splitter)
@@ -284,4 +284,9 @@ class Digitizer(QWidget):
         self.messagebox.setWindowTitle("Plot Workbench Notification")
         self.messagebox.exec_()
 
-
+    @staticmethod
+    def set_v_stretch(widget, value: int):
+        # Set widget size policy stretch factor to value
+        sp = widget.sizePolicy()
+        sp.setVerticalStretch(value)
+        widget.setSizePolicy(sp)
