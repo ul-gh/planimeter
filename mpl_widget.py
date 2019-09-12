@@ -357,7 +357,7 @@ class MplWidget(QWidget):
     def on_pick(self, event):
         # Mouse pick event handling
         index = event.ind if hasattr(event, "ind") else None
-        self.pick_origin_x = event.mouseevent.xdata
+        #self.pick_origin_x = event.mouseevent.xdata
         self.pick_and_blit(event.artist, index)
         self.canvas_qt.draw_idle()
 
@@ -401,9 +401,8 @@ class MplWidget(QWidget):
             # Blitting final step does seem to also update the Qt widget.
             self.canvas_qt.blit(self.mpl_ax.bbox)
         else:
-            # Move polygons along X
-            px_x = event.xdata
-            picked_obj.xy[:4,0] += px_x - pick_origin_x
+            # FIXME: Not implemented, move polygons along X etc.
+            pass
 
 
     def pick_and_blit(self, view_obj, index):

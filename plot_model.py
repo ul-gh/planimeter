@@ -56,11 +56,13 @@ class DataModel(QObject):
     output_data_changed = pyqtSignal([], [int])
     # Mainly used for configuring export options
     export_options_changed = pyqtSignal()
-    # This is re-emitted from the traces and triggers a re-display of the raw
+    # Emitted from the traces objects and triggers a re-display of the raw
     # (pixel-space) input points. This can be indexed with a trace number.
-    redraw_tr_pts_px = pyqtSignal([], [int])
-    # Same for axes points
-    redraw_ax_pts_px = pyqtSignal()
+    tr_pts_changed = pyqtSignal([], [int])
+    # Emitted from the axes objects, updates view outputs
+    ax_conf_changed = pyqtSignal()
+    # Triggers updates of coordinate settings box
+    coordinate_system_changed = pyqtSignal()
     # GUI error feedback when invalid data was entered
     value_error = pyqtSignal(str)
     # GUI feedback when export range settings are outside of points range
@@ -80,9 +82,13 @@ class DataModel(QObject):
         ##### Arbitrary number of traces
         # Three traces are default, see main.DefaultConfig
         self.traces = [
-            Trace(self, conf.trace_conf, name, color)
-            for name, color
-            in zip(conf.model_conf.traces_names, conf.model_conf.traces_colors)
+            Trace(self, conf.trace_conf, trace_no, name, color)
+            for trace_no, name, color
+            in zip( # trace_no: enumeration from zero in order of traces_names
+                    range(len(conf.model_conf.traces_names)),
+                    conf.model_conf.traces_names,
+                    conf.model_conf.traces_colors,
+                    )
             ]
 
         ##### Trace export options
@@ -116,41 +122,11 @@ class DataModel(QObject):
         # Store axes configuration persistently on disk when set
         self.store_ax_conf = conf.model_conf.store_ax_conf
 
-
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
             vars(self.x_ax).update(conf.x_ax_state)
         if conf.y_ax_state is not None:
             vars(self.y_ax).update(conf.y_ax_state)
-
-        ########## Connect signals from the axes and traces components
-        for ax in (self.x_ax, self.y_ax):
-            # Axis points movement triggers a recalculation of the transform
-            ax.pts_changed.connect(self._calculate_coordinate_transformation)
-            # So does adding or removing points, butt also causes re-display
-            ax.pts_added_deleted.connect(
-                self._calculate_coordinate_transformation)
-            # So do configuration changes
-            ax.config_changed.connect(self._calculate_coordinate_transformation)
-            # Error signals re-emitted here, later connected to message pop-up
-            ax.value_error.connect(self.value_error)
-        # Trace data changes trigger a model update for that trace only.
-        for i, tr in enumerate(self.traces):
-            # When points are moved, update outputs but no sorting is needed
-            tr.pts_changed.connect(
-                partial(self.calculate_live_outputs, i, False))
-            # Export range update
-            tr.pts_changed.connect(self.check_or_update_export_range)
-            # When points are added or deleted, not only update outputs but
-            # re-sort the points and update the view of the raw points
-            tr.pts_added_deleted.connect(
-                partial(self.calculate_live_outputs, i, True))
-            tr.pts_added_deleted.connect(
-                partial(self.redraw_tr_pts_px[int].emit, i))
-            # Export range update
-            tr.pts_added_deleted.connect(self.check_or_update_export_range)
-            # The errors are also re-emitted.
-            tr.value_error.connect(self.value_error)
 
         ########## Initialise model outputs if axes are configured
         if self.axes_setup_is_complete():
@@ -171,6 +147,7 @@ class DataModel(QObject):
     def wip_plot_cap_charge_e_stored(self,tr):
         self.fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
         self.fig.set_size_inches(18, 6.0)
+        # Plot ax1
         u_format.plot_lin_lin_engineering(
                 ax1,
                 *tr.pts_export.T,
@@ -180,24 +157,30 @@ class DataModel(QObject):
                 #xlim=(1, 450),
                 #ylim=(0, 0.6),
                 )
+        # Plot ax2
         u_format.plot_lin_lin_engineering(
                 ax2,
                 *tr.pts_export_int.T,
-                title=r"Charge Q(u), as Integral C(u) du",
+                title=r"Charge Q(u)",
                 xlabel=r"U /Volts",
                 ylabel=r"Q(u) /Coulombs",
                 #xlim=(1, 450),
                 #ylim=(0, 0.6),
                 )
+        ax2_text = r"$Q(u) = \int C(u) \: du$"
+        ax2.text(0.05, 0.9, ax2_text, fontsize=15, transform=ax2.transAxes)
+        # Plot ax3
         u_format.plot_lin_lin_engineering(
                 ax3,
                 *tr.pts_export_xy_int.T,
-                title=r"C(u) Stored Energy, as Integral u*C(u) du",
+                title=r"C Stored Energy E(u)",
                 xlabel=r"U /Volts",
                 ylabel=r"E(u) /Joules",
                 #xlim=(1, 450),
                 #ylim=(0, 0.6),
                 )
+        ax3_text = r"$E(u) = \int u \cdot C(u) \: du$"
+        ax3.text(0.05, 0.9, ax3_text, fontsize=15, transform=ax3.transAxes)
         self.fig.tight_layout()
 
     ########## GUI scope and public methods
@@ -252,7 +235,7 @@ class DataModel(QObject):
                 for tr in self.traces
                 if tr.f_interp is not None and tr.export
                 ]
-        output_arr = np.empty((1+len(trace_funcs), n_interp))
+        output_arr = np.empty((1+len(output_funcs), n_interp))
         output_arr[0] = x_grid_export
         for row, output_func in enumerate(output_funcs, start=1):
             output_arr[row] = output_func(x_grid_export)
@@ -282,6 +265,7 @@ class DataModel(QObject):
         self.check_or_update_export_range()
 
     def check_or_update_export_range(self):
+        # Called from self.calculate_live_outputs.
         # Set export range limits on the common X axis such that
         # all traces can be exported by using interpolation, i.e. no
         # extrapolation takes place.
@@ -316,7 +300,7 @@ class DataModel(QObject):
             self.x_end_export = x_end_export_limit
             # Update dependent attributes
             if self.fixed_n_pts_export:
-                if self.log_scale_export:
+                if self.x_log_scale_export:
                     self.update_n_pts_dec_export()
                 else:
                     self.update_x_step_export()
@@ -373,7 +357,7 @@ class DataModel(QObject):
                 "Value changed to one point minimum")
         # Calculation only possible when export range is defined
         if not isnan((self.x_start_export, self.x_end_export)).any():
-            if x_log_scale_export:
+            if self.x_log_scale_export:
                 self.update_n_pts_dec_export()
             else:
                 self.update_x_step_export()
@@ -384,7 +368,7 @@ class DataModel(QObject):
     def set_x_step_export(self, x_step: float):
         self.fixed_n_pts_export = False
         # If called, this assumes linear scale export is desired:
-        self.log_scale_export = False
+        self.x_log_scale_export = False
         # Validation only possible when export range is defined
         if isnan((self.x_start_export, self.x_end_export)).any():
             # Without validation
@@ -410,11 +394,11 @@ class DataModel(QObject):
     @pyqtSlot(float)
     def set_n_pts_dec_export(self, n_pts_dec: float):
         # If called, this assumes log scale export is desired:
-        self.log_scale_export = True
+        self.x_log_scale_export = True
         # Validation only possible when export range is defined
         if isnan((self.x_start_export, self.x_end_export)).any():
             # Without validation
-            self.x_step_export = x_step
+            self.n_pts_dec_export = n_pts_dec
             return
         # Validation: If the selected X step results in too many points,
         # limit to max. value and emit a warning
@@ -450,9 +434,27 @@ class DataModel(QObject):
         if invalid_x or invalid_y:
             return False
         return True
+    
+    def get_px_from_data_bounds(self, x_min_max, y_min_max):
+        if self.x_ax.log_scale:
+            xmin, xmax = np.log((x_min_max)) / np.log(self.x_ax.log_base)
+        else:
+            xmin, xmax = x_min_max
+        if self.y_ax.log_scale:
+            ymin, ymax = np.log((y_min_max)) / np.log(self.y_ax.log_base)
+        else:
+            ymin, ymax = y_min_max
+        bbox_data = np.array(((xmin, ymin),
+                              (xmin, ymax),
+                              (xmax, ymin),
+                              (xmax, ymax)))
+        bbox_px = self.origin_px + (self._data_to_px_m @ bbox_data.T).T
+        xmin_px, ymin_px = np.min(bbox_px, axis=0)
+        xmax_px, ymax_px = np.max(bbox_px, axis=0)
+        return (xmin_px, xmax_px), (ymin_px, ymax_px)
 
     def get_pts_lin_px_coords(self, trace) -> np.ndarray:
-        """Returns graph mouse selected points in linearised pixel data
+        """Returns graph mouse selectd points in linearised pixel data
         coordinate system. Used for backplotting the transformed points.
         """
         # Transformation matrix applied to points as column vectors, plus offset
@@ -465,9 +467,8 @@ class DataModel(QObject):
         # Transformation matrix applied to points as column vectors, plus offset
         return (self._data_to_px_m @ trace.pts_lin_i.T).T + self.origin_px
 
-    @pyqtSlot()
-    @pyqtSlot(int, bool)
-    def calculate_live_outputs(self, trace_no=None, sorting_needed=True):
+
+    def calculate_live_outputs(self, trace_no=None):
         """Performs coordinate transformation, sorting, interpolation 
         and linearisation of log axes on the data model.
         """
@@ -482,11 +483,12 @@ class DataModel(QObject):
             else:
                 # These calls do the heavy work
                 tr._px_to_linear_data_coords(self._px_to_data_m, self.origin_px)
-                if sorting_needed:
-                    tr._sort_pts()
+                tr._sort_pts()
                 # Anyways:
                 tr._interpolate_view_data()
                 tr._handle_log_scale(self.x_ax, self.y_ax)
+        # What the name says..
+        self.check_or_update_export_range()
         # Emit signals informing of updated trace data
         if trace_no is None:
             self.output_data_changed.emit()
@@ -501,8 +503,7 @@ class DataModel(QObject):
         self.store_ax_conf = state
 
     ########## Model-specific implementation part
-    @pyqtSlot()
-    def _calculate_coordinate_transformation(self) -> None:
+    def calculate_coordinate_transformation(self) -> None:
         """Calculates data axes origin point offset in pixel coordinates and
         the coordinate transformation matrix including axes scale.
 
@@ -593,7 +594,7 @@ class DataModel(QObject):
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
         self.calculate_live_outputs()
-        self.redraw_ax_pts_px.emit()
+        self.coordinate_system_changed.emit()
 
     @staticmethod
     def _lines_intersection(line1_pts, line2_pts):
@@ -614,27 +615,15 @@ class DataModel(QObject):
         return np.array((num_xs, num_ys)) / denominator
 
 
-class Trace(QObject):
+class Trace():
     """Data representing a single plot trace, including individual
     configuration.
     """
-    ########## Qt signals
-    # This signal triggers an update of model output data and the associated
-    # GUI view when this trace data or configuration was changed.
-    # Since the input data is normally set by the view itself, a redraw of raw
-    # input data is not performed when this signal is emitted.
-    pts_changed = pyqtSignal()
-    # This causes not only an update of model output data but also a re-sorting
-    # of the input points and a full re-display of the pixel-space input points
-    pts_added_deleted = pyqtSignal()
-    # This updates the configuration boxes and buttons
-    config_changed = pyqtSignal()
-    # GUI error feedback when invalid data was entered
-    value_error = pyqtSignal(str)
-
-    def __init__(self, parent, tr_conf, name: str, color: str):
-        super().__init__(parent)
+    def __init__(self, model, tr_conf, trace_no: int, name: str, color: str):
+        ########## Connection to the containing data model
+        self.model = model
         ########## Plot trace configuration
+        self.trace_no = trace_no
         self.name = name
         # Marks this trace for export
         self.export = tr_conf.export
@@ -697,25 +686,28 @@ class Trace(QObject):
         """Clears this trace
         """
         self.init_data()
-        # Trigger view update
-        self.pts_added_deleted.emit()
+        # Trigger a full update of the model and view of inputs and outputs
+        self.model.calculate_live_outputs(self.trace_no)
+        self.model.tr_pts_changed[int].emit(self.trace_no)
 
     def add_pt_px(self, xydata):
         self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
         # Trigger a full update of the model and view of inputs and outputs
-        self.pts_added_deleted.emit()
+        self.model.calculate_live_outputs(self.trace_no)
+        self.model.tr_pts_changed[int].emit(self.trace_no)
 
     def update_pt_px(self, xydata, index: int):
         # Assuming this is called from the view only thus raw points need not
         # be redrawn
         self.pts_px[index] = xydata
         # Update of the model outputs plus update of outputs view
-        self.pts_changed.emit()
+        self.model.calculate_live_outputs(self.trace_no)
 
     def delete_pt_px(self, index: int):
         self.pts_px = np.delete(self.pts_px, index, axis=0)
         # Trigger a full update of the model and view of inputs and outputs
-        self.pts_added_deleted.emit()
+        self.model.calculate_live_outputs(self.trace_no)
+        self.model.tr_pts_changed[int].emit(self.trace_no)
 
     ########## Model-specific implementation part
     def _px_to_linear_data_coords(self, transform_matrix, origin_px) -> None:
@@ -739,7 +731,7 @@ class Trace(QObject):
         # order as the output. That step is especially useful for plotting
         # when points are added out-of-order.
         self.pts_lin, unique_ids = np.unique(
-            self.pts_lin, axis=0, return_index=True)
+                self.pts_lin, axis=0, return_index=True)
         self.pts_px = self.pts_px[unique_ids]
 
     def _interpolate_view_data(self) -> None:
@@ -812,30 +804,17 @@ class Trace(QObject):
                 self.f_interp = self.f_interp_lin
 
 
-class Axis(QObject):
+class Axis():
     """Plot axis
 
     This class includes access methods for GUI/model interactive
     axis configuration or re-configuration.
     """
-    # This signal triggers an update of model output data and the associated
-    # GUI view when this trace data or configuration was changed.
-    # Since the input data is normally set by the view itself, a redraw of raw
-    # input data is not performed when this signal is emitted.
-    pts_changed = pyqtSignal()
-    # This causes not only an update of model output data but also a re-sorting
-    # of the input points and a full re-display of the pixel-space input points
-    pts_added_deleted = pyqtSignal()
-    # This updates the input widget configuration boxes and buttons
-    config_changed = pyqtSignal()
-    # When invalid data was entered, e.g. zero value for logarithmic scale
-    value_error = pyqtSignal(str)
-
-    def __init__(self, parent, ax_conf):
-        """Initial axis configuration. These attributes can be overwritten
-        with stored configuration after this is instantiated in DataModel
-        """
-        super().__init__(parent)
+    def __init__(self, model, ax_conf):
+        # Initial axis configuration. These attributes are overwritten
+        # with stored configuration after axis is instantiated in DataModel
+        ########## Connection to the containing data model
+        self.model = model
         ########## Axis default configuration
         # Keyword options for point markers.
         self.pts_fmt = ax_conf.pts_fmt
@@ -858,26 +837,30 @@ class Axis(QObject):
     @pyqtSlot(float)
     def set_ax_start(self, value):
         if self.log_scale and isclose(value, 0.0, atol=self.atol):
-            self.value_error.emit("X axis values must not be zero for log axes")
+            self.model.value_error.emit(
+                    "X axis values must not be zero for log axes")
         elif self.pts_data[1] and (
                 isclose(value, self.pts_data[1], atol=self.atol)):
-            self.value_error.emit("X axis values must be numerically different")
+            self.model.value_error.emit(
+                    "X axis values must be numerically different")
         else:
             self.pts_data[0] = value
-        # Updates input widget, model, outputs and also sets self.pts_data_lin
-        self.config_changed.emit()
+        # Updates model outputs etc. when X and Y axis setup is complete
+        self.model.calculate_coordinate_transformation()
 
     @pyqtSlot(float)
     def set_ax_end(self, value):
         if self.log_scale and isclose(value, 0.0, atol=self.atol):
-            self.value_error.emit("X axis values must not be zero for log axes")
+            self.model.value_error.emit(
+                    "X axis values must not be zero for log axes")
         elif self.pts_data[0] and (
                 isclose(value, self.pts_data[0], atol=self.atol)):
-            self.value_error.emit("X axis values must be numerically different")
+            self.model.value_error.emit(
+                    "X axis values must be numerically different")
         else:
             self.pts_data[1] = value
-        # Updates input widget, model, outputs and also sets self.pts_data_lin
-        self.config_changed.emit()
+        # Updates model outputs etc. when X and Y axis setup is complete
+        self.model.calculate_coordinate_transformation()
 
     @pyqtSlot(bool)
     def set_log_scale(self, state):
@@ -885,10 +868,11 @@ class Axis(QObject):
         # Prevent setting logarithmic scale when axes values contain zero
         if log_scale and isclose(self.pts_data, 0.0, atol=self.atol).any():
             log_scale = False
-            self.value_error.emit("X axis values must not be zero for log axes")
+            self.model.value_error.emit(
+                    "X axis values must not be zero for log axes")
         self.log_scale = log_scale
-        # Updates input widget, model, outputs and also sets self.pts_data_lin
-        self.config_changed.emit()
+        # Updates model outputs etc. when X and Y axis setup is complete
+        self.model.calculate_coordinate_transformation()
 
     def add_pt_px(self, xydata):
         """Add a point defining an axis section
@@ -919,12 +903,13 @@ class Axis(QObject):
             # error message and return if this is the case
             pts_distance = np.linalg.norm(pts_px[pt_index-1] - xydata)
             if isclose(pts_distance, 0.0, atol=self.atol):
-                self.value_error.emit("X axis section must not be zero length")
+                self.model.value_error.emit(
+                        "X axis section must not be zero length")
                 return
         # Point validated or no validity check necessary
         pts_px[pt_index] = xydata
-        # Model plus view update
-        self.pts_added_deleted.emit()
+        # Updates model outputs etc. when X and Y axis setup is complete
+        self.model.calculate_coordinate_transformation()
 
 
     def update_pt_px(self, xydata, index: int):
@@ -938,24 +923,25 @@ class Axis(QObject):
         if None not in other_pt:
             pts_distance = np.linalg.norm(other_pt - xydata)
             if isclose(pts_distance, 0.0, atol=self.atol):
-                self.value_error.emit("X axis section must not be zero length")
+                self.model.value_error.emit(
+                        "X axis section must not be zero length")
                 return
         # Validity check passed or skipped
         self.pts_px[index] = xydata
-        self.pts_changed.emit()
+        # Updates model outputs etc. when X and Y axis setup is complete
+        self.model.calculate_coordinate_transformation()
 
     def delete_pt_px(self, index: int):
         """Delete axis point in pixel coordinates 
         """
         self.pts_px[index] = (NaN, NaN)
-        # Model plus view update
-        self.pts_added_deleted.emit()
+        # Updates model outputs etc. when X and Y axis setup is complete
+        self.model.calculate_coordinate_transformation()
 
 
     def _get_state(self):
-        """Returns the axis configuration attributes as a dictionary
-        Used for persistent storage.
-        """
+        # Returns the axis configuration attributes as a dictionary
+        # Used for persistent storage.
         state = vars(self).copy()
         # The view object belongs to the view component and cannot be restored
         # into a new context.

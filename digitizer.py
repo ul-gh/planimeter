@@ -61,13 +61,17 @@ class Digitizer(QWidget):
 
         # General text or warning message
         self.messagebox = QMessageBox(self)
-        
+
+        # Matplotlib widget
+        self.mplw = mplw = MplWidget(self, model, conf)
+
         # Jupyter Console button
         self.btn_console = btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
 
         # Data Coordinate Display and Edit Box
-        self.data_coord_props = data_coord_props = DataCoordProps(self, model)
+        self.data_coord_props = data_coord_props = DataCoordProps(
+                self, model, mplw.mpl_ax)
         
         # Export options box
         self.export_settings = export_settings = ExportSettingsBox(self, model)
@@ -77,9 +81,6 @@ class Digitizer(QWidget):
         
         # Push buttons and axis value input fields widget.
         self.axconfw = axconfw = AxConfWidget(self, model)
-        
-        # Matplotlib widget
-        self.mplw = mplw = MplWidget(self, model, conf)
        
 
         # Layout is two columns of widgets, right is data output and console,
@@ -118,18 +119,21 @@ class Digitizer(QWidget):
         ########## application controller logic
         ##### Connect model state changes to update the GUI widgets
         # Update input widget immediately when axis config changes
-        model.x_ax.config_changed.connect(axconfw.update_axes_view)
-        model.y_ax.config_changed.connect(axconfw.update_axes_view)
+        model.ax_conf_changed.connect(axconfw.update_axes_view)
+        model.ax_conf_changed.connect(axconfw.update_axes_view)
+        # Update plot view displaying axes points and origin
+        model.ax_conf_changed.connect(mplw.using_model_redraw_ax_pts_px)
+        # Update the coordinate system properties box
+        model.coordinate_system_changed.connect(
+                data_coord_props.update_from_plot_extents)
+        # Re-draw display of the raw (pixel-space) input points if requested.
+        #model.tr_pts_changed.connect(mplw.using_model_redraw_tr_pts_px)
+        #model.tr_pts_changed[int].connect(mplw.using_model_redraw_tr_pts_px)
         # Update traces view when model has updated data.
         # Since the input data is normally set by the view itself, a redraw
         # of raw input data is not performed when this signal is received.
         model.output_data_changed.connect(mplw.update_output_view)
         model.output_data_changed[int].connect(mplw.update_output_view)
-        # Update plot view displaying axes points as well
-        model.redraw_ax_pts_px.connect(mplw.using_model_redraw_ax_pts_px)
-        # Re-draw display of the raw (pixel-space) input points if requested.
-        model.redraw_tr_pts_px.connect(mplw.using_model_redraw_tr_pts_px)
-        model.redraw_tr_pts_px[int].connect(mplw.using_model_redraw_tr_pts_px)
 
         # Error message
         model.value_error.connect(self.show_text)

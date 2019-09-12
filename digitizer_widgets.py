@@ -7,7 +7,7 @@ License: GPL version 3
 """
 from functools import partial
 
-from numpy import isclose, isnan
+from numpy import NaN, isclose, isnan
 
 from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
@@ -18,26 +18,27 @@ from PyQt5.QtWidgets import (
         )
 
 class DataCoordProps(QGroupBox):
-    def __init__(self, parent, model):
+    def __init__(self, parent, model, mpl_ax):
         super().__init__("Data Coordinate System", parent)
         self.model = model
+        self.mpl_ax = mpl_ax
 
         layout = QGridLayout(self)
 #        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
 
         self.cursor_xy_label = QLabel("Cursor X and Y data:")
-        self.cursor_x_display = QLineEdit("NaN")
-        self.cursor_y_display = QLineEdit("NaN")
+        self.cursor_x_display = SciLineEdit()
+        self.cursor_y_display = SciLineEdit()
         self.cursor_x_display.setReadOnly(True)
         self.cursor_y_display.setReadOnly(True)
         self.cursor_x_display.setStyleSheet("background-color: LightGrey")
         self.cursor_y_display.setStyleSheet("background-color: LightGrey")
         self.x_range_label = QLabel("Canvas X Data Extent:")
-        self.x_min_edit = QLineEdit()
-        self.x_max_edit = QLineEdit()
+        self.x_min_edit = SciLineEdit()
+        self.x_max_edit = SciLineEdit()
         self.y_range_label = QLabel("Canvas Y Data Extent:")
-        self.y_min_edit = QLineEdit()
-        self.y_max_edit = QLineEdit()
+        self.y_min_edit = SciLineEdit()
+        self.y_max_edit = SciLineEdit()
 
         layout.addWidget(self.cursor_xy_label, 0, 0)
         layout.addWidget(self.cursor_x_display, 0, 1)
@@ -48,6 +49,30 @@ class DataCoordProps(QGroupBox):
         layout.addWidget(self.y_range_label, 2, 0)
         layout.addWidget(self.y_min_edit, 2, 1)
         layout.addWidget(self.y_max_edit, 2, 2)
+
+        ######### DataCoordProps Signals
+        self.x_min_edit.valid_number_entered.connect(self._set_model_px_bounds)
+        self.x_max_edit.valid_number_entered.connect(self._set_model_px_bounds)
+        self.y_min_edit.valid_number_entered.connect(self._set_model_px_bounds)
+        self.y_max_edit.valid_number_entered.connect(self._set_model_px_bounds)
+
+    @pyqtSlot()
+    def _set_model_px_bounds(self):
+        x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
+        y_min_max = self.y_min_edit.value(), self.y_max_edit.value()
+        x_min_max_px, y_min_max_px = self.model.get_px_from_data_bounds(
+                x_min_max, y_min_max)
+        self.mpl_ax.set_xbound(x_min_max)
+        self.mpl_ax.set_ybound(y_min_max)
+    
+    @pyqtSlot()
+    def update_from_plot_extents(self):
+        x_min, x_max = self.mpl_ax.get_xbound()
+        y_min, y_max = self.mpl_ax.get_ybound()
+        self.x_min_edit.setValue(x_min)
+        self.x_max_edit.setValue(x_max)
+        self.y_min_edit.setValue(y_min)
+        self.y_max_edit.setValue(y_max)
 
 
 class ExportSettingsBox(QGroupBox):
@@ -342,18 +367,21 @@ class NumberedButton(StyledButton):
 
 class SciLineEdit(QLineEdit):
     """QLineEdit with added validator for scientific notation input.
-    Also, this takes a number as preset value instead of a string.
+    Also, this takes a number as preset value instead of a string
+    and holds a validated number property.
     """
     valid_number_entered = pyqtSignal(float)
     def __init__(
             self,
-            preset_value,
-            placeholderText,
+            preset_value=NaN,
+            placeholderText="",
             num_fmt=".6G",
             *args,
             **kwargs
             ):
-        text = None if isnan(preset_value) else f"{preset_value:{num_fmt}}"
+        self.num_fmt = num_fmt
+        self.curr_value = preset_value
+        text = "" if isnan(preset_value) else f"{preset_value:{num_fmt}}"
         super().__init__(
                 text,
                 *args,
@@ -362,12 +390,21 @@ class SciLineEdit(QLineEdit):
                 )
         v = QDoubleValidator(self, notation=QDoubleValidator.ScientificNotation)
         self.setValidator(v)
-        self.editingFinished.connect(self._emit_number)
+        self.editingFinished.connect(self._update_value)
+    
+    def value(self):
+        return self.curr_value
+    
+    def setValue(self, value):
+        self.curr_value = value
+        text = None if isnan(value) else f"{value:{self.num_fmt}}"
+        self.setText(text)
 
     @pyqtSlot()
-    def _emit_number(self):
+    def _update_value(self):
         number, is_valid = self.locale().toDouble(self.text())
         if is_valid:
+            self.curr_value = number
             self.valid_number_entered.emit(number)
 
 
