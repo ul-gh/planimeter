@@ -35,7 +35,8 @@ class EmbeddedIPythonKernel(QtCore.QObject):
                 )
         # ?? New process must not be forked as it would then inherit some
         # QApplication state? Idk but this works:
-        multiprocessing.set_start_method("spawn")
+        if multiprocessing.get_start_method() != "spawn":
+            multiprocessing.set_start_method("spawn", force=True)
         self.ipy_kernelapp = None
         self.console_process = None
         # This will be an always available kernel client instance when the

@@ -9,13 +9,15 @@ from functools import partial
 
 from numpy import NaN, isclose, isnan
 
-from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, QLocale, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QMessageBox,
         QGroupBox, QLabel, QPushButton, QRadioButton, QCheckBox, QComboBox,
         QTableWidget, QTableWidgetItem, QSizePolicy
         )
+
+from upylib.u_sci_numbers import sane_str_to_f
 
 class DataCoordProps(QGroupBox):
     def __init__(self, parent, model, mpl_ax):
@@ -290,16 +292,16 @@ class AxConfWidget(QWidget):
         num_fmt = self.model.num_fmt
         # Update axis section value input boxes
         x0, x1, y0, y1 = *x_ax.pts_data, *y_ax.pts_data
-        self.xstartw.setText("" if x0 is None else f"{x0:{num_fmt}}")
-        self.xendw.setText("" if x1 is None else f"{x1:{num_fmt}}")
-        self.ystartw.setText("" if y0 is None else f"{y0:{num_fmt}}")
-        self.yendw.setText("" if y1 is None else f"{y1:{num_fmt}}")
-        invalid_x = x_ax.log_scale and isclose(
-            x_ax.pts_data, 0.0, atol=x_ax.atol).any()
-        invalid_y = y_ax.log_scale and isclose(
-            y_ax.pts_data, 0.0, atol=y_ax.atol).any()
-        self.set_green_x_ax(not invalid_x and None not in x_ax.pts_data)
-        self.set_green_y_ax(not invalid_y and None not in y_ax.pts_data)
+        self.xstartw.setValue(x0)
+        self.xendw.setValue(x1)
+        self.ystartw.setValue(y0)
+        self.yendw.setValue(y1)
+        invalid_x = isnan(x_ax.pts_data).any() or x_ax.log_scale and isclose(
+                x_ax.pts_data, 0.0, atol=x_ax.atol).any()
+        invalid_y = isnan(x_ax.pts_data).any() or y_ax.log_scale and isclose(
+                y_ax.pts_data, 0.0, atol=y_ax.atol).any()
+        self.set_green_x_ax(not invalid_x)
+        self.set_green_y_ax(not invalid_y)
         # Update log/lin radio buttons.
         self.btn_lin_x.setChecked(not x_ax.log_scale)
         self.btn_log_x.setChecked(x_ax.log_scale)
@@ -379,8 +381,6 @@ class SciLineEdit(QLineEdit):
             *args,
             **kwargs
             ):
-        self.num_fmt = num_fmt
-        self.curr_value = preset_value
         text = "" if isnan(preset_value) else f"{preset_value:{num_fmt}}"
         super().__init__(
                 text,
@@ -388,24 +388,26 @@ class SciLineEdit(QLineEdit):
                 placeholderText=placeholderText,
                 **kwargs
                 )
-        v = QDoubleValidator(self, notation=QDoubleValidator.ScientificNotation)
-        self.setValidator(v)
         self.editingFinished.connect(self._update_value)
+        # Defaults to notation=QDoubleValidator.ScientificNotation
+        validator = QDoubleValidator(self)
+        validator.setLocale(QLocale("en_US"))
+        self.setValidator(validator)
+        self._num_fmt = num_fmt
+        self._value = preset_value
     
-    def value(self):
-        return self.curr_value
+    def value(self) -> float:
+        return self._value
     
-    def setValue(self, value):
-        self.curr_value = value
-        text = None if isnan(value) else f"{value:{self.num_fmt}}"
+    def setValue(self, value: float):
+        self._value = value
+        text = "" if isnan(value) else f"{value:{self._num_fmt}}"
         self.setText(text)
 
     @pyqtSlot()
     def _update_value(self):
-        number, is_valid = self.locale().toDouble(self.text())
-        if is_valid:
-            self.curr_value = number
-            self.valid_number_entered.emit(number)
+        self._value = float(self.text().replace(",", "."))
+        self.valid_number_entered.emit(self._value)
 
 
 class CenteredCheckbox(QWidget):

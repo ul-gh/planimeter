@@ -130,7 +130,7 @@ class DataModel(QObject):
 
         ########## Initialise model outputs if axes are configured
         if self.axes_setup_is_complete():
-            self._calculate_coordinate_transformation()
+            self.calculate_coordinate_transformation()
 
 
     def wip_export(self, tr):
@@ -423,15 +423,14 @@ class DataModel(QObject):
         """
         x_ax = self.x_ax
         y_ax = self.y_ax
-        if None in x_ax.pts_data or None in y_ax.pts_data:
-            return False
-        if isnan(np.concatenate((x_ax.pts_px, y_ax.pts_px))).any():
-            return False
         invalid_x = x_ax.log_scale and isclose(
             x_ax.pts_data, 0.0, atol=x_ax.atol).any()
         invalid_y = y_ax.log_scale and isclose(
             y_ax.pts_data, 0.0, atol=y_ax.atol).any()
-        if invalid_x or invalid_y:
+        if (    isnan(x_ax.pts_data).any() or isnan(y_ax.pts_data).any()
+                or isnan(x_ax.pts_px).any() or isnan(y_ax.pts_px).any()
+                or invalid_x or invalid_y
+                ):
             return False
         return True
     
@@ -615,11 +614,12 @@ class DataModel(QObject):
         return np.array((num_xs, num_ys)) / denominator
 
 
-class Trace():
+class Trace(QObject):
     """Data representing a single plot trace, including individual
     configuration.
     """
     def __init__(self, model, tr_conf, trace_no: int, name: str, color: str):
+        super().__init__(model)
         ########## Connection to the containing data model
         self.model = model
         ########## Plot trace configuration
@@ -730,9 +730,12 @@ class Trace():
         # indices are also used to sort the input points in the same
         # order as the output. That step is especially useful for plotting
         # when points are added out-of-order.
-        self.pts_lin, unique_ids = np.unique(
-                self.pts_lin, axis=0, return_index=True)
-        self.pts_px = self.pts_px[unique_ids]
+#        self.pts_lin, unique_ids = np.unique(
+#                self.pts_lin, axis=0, return_index=True)
+#        self.pts_px = self.pts_px[unique_ids]
+        ids = np.argsort(self.pts_lin, axis=0)
+        self.pts_lin = self.pts_lin[ids]
+        self.pts_px = self.ps_px[ids]
 
     def _interpolate_view_data(self) -> None:
         # Acts on linear coordinates.
@@ -804,13 +807,14 @@ class Trace():
                 self.f_interp = self.f_interp_lin
 
 
-class Axis():
+class Axis(QObject):
     """Plot axis
 
     This class includes access methods for GUI/model interactive
     axis configuration or re-configuration.
     """
     def __init__(self, model, ax_conf):
+        super().__init__(model)
         # Initial axis configuration. These attributes are overwritten
         # with stored configuration after axis is instantiated in DataModel
         ########## Connection to the containing data model
@@ -839,8 +843,7 @@ class Axis():
         if self.log_scale and isclose(value, 0.0, atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
-        elif self.pts_data[1] and (
-                isclose(value, self.pts_data[1], atol=self.atol)):
+        elif isclose(value, self.pts_data[1], atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must be numerically different")
         else:
@@ -853,8 +856,7 @@ class Axis():
         if self.log_scale and isclose(value, 0.0, atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
-        elif self.pts_data[0] and (
-                isclose(value, self.pts_data[0], atol=self.atol)):
+        elif isclose(value, self.pts_data[0], atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must be numerically different")
         else:
@@ -886,6 +888,7 @@ class Axis():
 
         Emits error message signal if invalid, emits view update triggers
         """
+        print("Debug: add_pt_px called")
         pts_px = self.pts_px
         # Results are each True when point is unset..
         unset_1st, unset_2nd = isnan(pts_px).any(axis=1)
@@ -902,11 +905,13 @@ class Axis():
             # Check if input point is too close to other point, emit
             # error message and return if this is the case
             pts_distance = np.linalg.norm(pts_px[pt_index-1] - xydata)
+            print("Debug: xydata, pt_index, pts_px: ", xydata, pt_index, pts_px)
             if isclose(pts_distance, 0.0, atol=self.atol):
                 self.model.value_error.emit(
                         "X axis section must not be zero length")
                 return
         # Point validated or no validity check necessary
+        print("Debug: xydata, pt_index, pts_px: ", xydata, pt_index, pts_px)
         pts_px[pt_index] = xydata
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.calculate_coordinate_transformation()
@@ -945,7 +950,7 @@ class Axis():
         state = vars(self).copy()
         # The view object belongs to the view component and cannot be restored
         # into a new context.
-        del state["pts_view_obj"]
+        del state["pts_view_obj"], state["model"]
         return state
 
 

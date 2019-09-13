@@ -21,6 +21,7 @@ MODE_DEFAULT = 0
 MODE_SETUP_X_AXIS = 1
 MODE_SETUP_Y_AXIS = 2
 MODE_ADD_TRACE_PTS = 3
+MODE_DRAG = 4
 # 2D NaN row for fast appending to trace or axes points arrays
 NAN_ROW_2D = np.full((1, 2), NaN)
 NAN_ROW_2D.setflags(write=False)
@@ -60,6 +61,8 @@ class MplWidget(QWidget):
         ########## Operation state
         # What happens when the plot canvas is clicked..
         self.op_mode = MODE_DEFAULT
+        # Prevents recursive updates when True
+        self.inhibit_signals = False
         self.curr_trace_no = 0
         # This stores the pyplot.Lines2D object when a plot item was picked
         self.picked_obj = None
@@ -141,6 +144,8 @@ class MplWidget(QWidget):
         else:
             # Entering X-axis picking mode.
             self.op_mode = MODE_SETUP_X_AXIS
+            # Prevent recursive updates
+            self.inhibit_signals = True
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_x_axis.emit()
             print("Pick X axis points!")
@@ -161,6 +166,8 @@ class MplWidget(QWidget):
         else:
             # Entering Y-axis picking mode.
             self.op_mode = MODE_SETUP_Y_AXIS
+            # Prevent recursive updates
+            self.inhibit_signals = True
             # Qt signal sets the input widget button to reflect new state
             self.mode_sw_setup_y_axis.emit()
             print("Pick Y axis points!")
@@ -194,6 +201,8 @@ class MplWidget(QWidget):
                 tr.init_data()
             # Enter or stay in add trace points mode
             self.op_mode = MODE_ADD_TRACE_PTS
+            # Prevent recursive updates
+            self.inhibit_signals = True
             pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
             tr.pts_view_obj.set_data(*pts_px_new.T)
             self.pick_and_blit(tr.pts_view_obj, tr.pts_px.shape[0]-1)
@@ -209,6 +218,9 @@ class MplWidget(QWidget):
 
         This also registers the view objects back into the model.
         """
+        if self.inhibit_signals:
+            # Prevent recursive updates
+            return
         model = self.model
         ########## X and Y axis:
         for ax in model.x_ax, model.y_ax:
@@ -251,6 +263,9 @@ class MplWidget(QWidget):
 
         This also registers the view objects back into the model.
         """
+        if self.inhibit_signals:
+            # Prevent recursive updates
+            return
         model = self.model
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
         for tr in traces:
@@ -356,14 +371,16 @@ class MplWidget(QWidget):
 
     def on_pick(self, event):
         # Mouse pick event handling
+        # Prevent recursive updates
+        self.inhibit_signals = True
         index = event.ind if hasattr(event, "ind") else None
         #self.pick_origin_x = event.mouseevent.xdata
         self.pick_and_blit(event.artist, index)
         self.canvas_qt.draw_idle()
 
     def on_button_release(self, event):
-        # The mouse button release event is only used for drag+drop-mode
-        if self.op_mode != MODE_DEFAULT:
+        # The mouse button release event is only used for object drag-mode
+        if self.op_mode != MODE_DRAG:
             return
         picked_obj = self.picked_obj
         if picked_obj is None:
@@ -374,35 +391,35 @@ class MplWidget(QWidget):
         # This also emits the pts_changed signal
         self.picked_obj_model.update_pt_px(xydata[index], index)
         # Restore default state
-        self.picked_obj = None
+        self.sw_to_default()
+        #self.picked_obj = None
 
     def on_motion_notify(self, event):
         picked_obj = self.picked_obj
-        if picked_obj is None:
-            return
-        index = self.picked_obj_index
-        if index is not None:
-            # Move normal points
-            xydata = picked_obj.get_xydata()
-            # Implicit cast to np.ndarray
-            xydata[index] = event.xdata, event.ydata
-            # Set data only in view component (model is updated on button release)
-            picked_obj.set_data(*xydata.T)
-            ### Option:
-            # Set data also in model when dragging existing points.
-            # Causes re-calculation.
-            if self.op_mode == MODE_DEFAULT:
+        if picked_obj is not None:
+            index = self.picked_obj_index
+            if index is not None:
+                # Move normal points
+                xydata = picked_obj.get_xydata()
+                # Implicit cast to np.ndarray
+                xydata[index] = event.xdata, event.ydata
+                # Set data only in view component
+                # (model is updated on button release)
+                picked_obj.set_data(*xydata.T)
+                ### Option:
+                # Set data also in model when dragging existing points.
+                # Causes re-calculation.
                 self.picked_obj_model.update_pt_px(xydata[index], index)
-            ###
-            # Blitting operation
-            self.canvas_qt.restore_region(self.background)
-            # Redraws object using cached Agg renderer
-            self.mpl_ax.draw_artist(picked_obj)
-            # Blitting final step does seem to also update the Qt widget.
-            self.canvas_qt.blit(self.mpl_ax.bbox)
-        else:
-            # FIXME: Not implemented, move polygons along X etc.
-            pass
+                ###
+                # Blitting operation
+                self.canvas_qt.restore_region(self.background)
+                # Redraws object using cached Agg renderer
+                self.mpl_ax.draw_artist(picked_obj)
+                # Blitting final step does seem to also update the Qt widget.
+                self.canvas_qt.blit(self.mpl_ax.bbox)
+            else:
+                # FIXME: Not implemented, move polygons along X etc.
+                pass
 
 
     def pick_and_blit(self, view_obj, index):
@@ -428,10 +445,11 @@ class MplWidget(QWidget):
 
     def sw_to_default(self):
         print("Switching back to default mode")
+        self.op_mode = MODE_DEFAULT
         if self.picked_obj is not None:
             self.picked_obj = None
-            self.using_model_redraw_tr_pts_px()
-        self.op_mode = MODE_DEFAULT
+            #self.using_model_redraw_tr_pts_px()
+        self.inhibit_signals = False
         self.mode_sw_default.emit()
 
 
