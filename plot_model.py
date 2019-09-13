@@ -899,7 +899,7 @@ class Axis(QObject):
             self.pts_px[1] = (NaN, NaN)
         elif not unset_1st or not unset_2nd:
             # Only one point is still unset. (Both not set was covered above)
-            # Set index according to the remaining unset point:
+            # Set index to the remaining unset point:
             if unset_2nd:
                 pt_index = 1
             # Check if input point is too close to other point, emit
