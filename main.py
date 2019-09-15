@@ -155,7 +155,7 @@ class MainWindow(QMainWindow):
             self.ipyconsole.launch_jupyter_console_process)
 
         # Dialog box signals
-        self.dlg_open_image.fileSelected.connect(self.cw.load_image)
+        self.dlg_open_image.fileSelected.connect(self.cw.mplw.load_image)
         self.dlg_open_image.directoryEntered.connect(self.set_wdir)
         self.dlg_export_csv.fileSelected.connect(self.cw.on_dlg_export_csv)
 

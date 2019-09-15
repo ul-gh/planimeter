@@ -54,8 +54,8 @@ class MplWidget(QWidget):
     valid_y_axis_setup = pyqtSignal(bool)
 
 
-    def __init__(self, parent, model, conf):
-        super().__init__(parent)
+    def __init__(self, digitizer):
+        super().__init__(digitizer)
         ########## Operation state
         # What happens when the plot canvas is clicked..
         self.op_mode = self.MODE_DEFAULT
@@ -69,10 +69,10 @@ class MplWidget(QWidget):
         # Index of a single picked point inside the view object
         self.picked_obj_index = 0
         # App configuration
-        self.conf = conf
+        self.conf = digitizer.conf
 
         ########## Access to the data model
-        self.model = model
+        self.model = digitizer.model
 
         ########## View-Model-Map
         # Mapping of individual view objects (lines, points) to the
@@ -322,7 +322,7 @@ class MplWidget(QWidget):
     def on_key_press(self, event):
         logger.debug(f"Event key pressed is: {event.key}")
         if event.key == "escape":
-            self.sw_to_default()
+            self.set_mode(self.MODE_DEFAULT)
 
 
     def on_button_press(self, event):
@@ -356,7 +356,7 @@ class MplWidget(QWidget):
                 if ax.valid_pts_px():
                     logger.info("X axis points complete")
                     self.valid_x_axis_setup.emit(True)
-                    self.sw_to_default()
+                    self.set_mode(self.MODE_DEFAULT)
             return
         ##### Add Y-axis point
         if self.op_mode == self.MODE_SETUP_Y_AXIS:
@@ -374,7 +374,7 @@ class MplWidget(QWidget):
                 if ax.valid_pts_px():
                     logger.info("Y axis points complete")
                     self.valid_y_axis_setup.emit(True)
-                    self.sw_to_default()
+                    self.set_mode(self.MODE_DEFAULT)
             return
         ##### Add trace point
         if self.op_mode == self.MODE_ADD_TRACE_PTS:
@@ -408,7 +408,7 @@ class MplWidget(QWidget):
         # This also emits the pts_changed signal
         self.picked_obj_model.update_pt_px(xydata[index], index)
         # Restore default state
-        self.sw_to_default()
+        self.set_mode(self.MODE_DEFAULT)
         #self.picked_obj = None
 
 

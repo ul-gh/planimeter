@@ -62,6 +62,8 @@ class DataModel(QObject):
     tr_pts_changed = pyqtSignal([], [int])
     # Emitted from the axes objects, updates view outputs
     ax_conf_changed = pyqtSignal()
+    # This emits a model trace index when traces are added, deleted or renamed
+    tr_conf_changed = pyqtSignal(int)
     # Triggers updates of coordinate settings box
     coordinate_system_changed = pyqtSignal()
     # GUI error feedback when invalid data was entered

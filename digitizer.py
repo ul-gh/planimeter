@@ -31,7 +31,7 @@ class Digitizer(QWidget):
 
     This is the controller instance with direct association to the
     interactive data model, a matplotlib based view component providing
-    plot and graphic display with mouse interaction,
+    plot and graphic displa/y with mouse interaction,
     a text and button input widget for setup and control and some
     auxiliary methods e.g. system clipboard access and helper functions.
 
@@ -41,12 +41,8 @@ class Digitizer(QWidget):
     
     2019-07-29 Ulrich Lukas
     """
-    ########## Qt signals
-    # This triggers a load or reload of the digitizer source input image
-    load_image = pyqtSignal(str)
-   
-    def __init__(self, parent, conf):
-        super().__init__(parent)
+    def __init__(self, mainw, conf):
+        super().__init__(mainw)
         self.conf = conf
         # System clipboard access
         self.clipboard = QApplication.instance().clipboard()
@@ -63,24 +59,23 @@ class Digitizer(QWidget):
         self.messagebox = QMessageBox(self)
 
         # Matplotlib widget
-        self.mplw = mplw = MplWidget(self, model, conf)
+        self.mplw = mplw = MplWidget(self, model)
 
-        # Jupyter Console button
-        self.btn_console = btn_console = QPushButton(
+        # Launch Jupyter Console button
+        self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
 
         # Data Coordinate Display and Edit Box
-        self.data_coord_props = data_coord_props = DataCoordProps(
-                self, model, mplw.mpl_ax)
+        self.data_coord_props = DataCoordProps(self, model, mplw)
         
         # Export options box
-        self.export_settings = export_settings = ExportSettingsBox(self, model)
+        self.export_settings = ExportSettingsBox(self, model, mplw)
 
         # Traces properties are displayed in a QTableWidget
-        self.tr_conf_table = tr_conf_table = TraceConfTable(self, model)
+        self.tr_conf_table = TraceConfTable(self, model, mplw)
         
         # Push buttons and axis value input fields widget.
-        self.axconfw = axconfw = AxConfWidget(self, model)
+        self.axconfw = AxConfWidget(self, model, mplw)
        
 
         # Layout is two columns of widgets, right is data output and console,
@@ -93,22 +88,22 @@ class Digitizer(QWidget):
         # Left side layout is vertical widgets, divided by a splitter
         self.mplw_splitter = mplw_splitter = QSplitter(Qt.Vertical, self)
         mplw_splitter.setChildrenCollapsible(False)
-        self.set_v_stretch(axconfw, 0)
-        self.set_v_stretch(mplw, 1)
-        mplw_splitter.addWidget(axconfw)
-        mplw_splitter.addWidget(mplw)
+        self.set_v_stretch(self.axconfw, 0)
+        self.set_v_stretch(self.mplw, 1)
+        mplw_splitter.addWidget(self.axconfw)
+        mplw_splitter.addWidget(self.mplw)
 
         # Right side layout just the same
         self.io_splitter = io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
-        self.set_v_stretch(data_coord_props, 0)
-        self.set_v_stretch(export_settings, 0)
-        self.set_v_stretch(tr_conf_table, 1)
-        self.set_v_stretch(btn_console, 0)
-        io_splitter.addWidget(data_coord_props)
-        io_splitter.addWidget(export_settings)
-        io_splitter.addWidget(tr_conf_table)
-        io_splitter.addWidget(btn_console)
+        self.set_v_stretch(self.data_coord_props, 0)
+        self.set_v_stretch(self.export_settings, 0)
+        self.set_v_stretch(self.tr_conf_table, 1)
+        self.set_v_stretch(self.btn_console, 0)
+        io_splitter.addWidget(self.data_coord_props)
+        io_splitter.addWidget(self.export_settings)
+        io_splitter.addWidget(self.tr_conf_table)
+        io_splitter.addWidget(self.btn_console)
 
         # All combined
         hsplitter.addWidget(self.mplw_splitter)
@@ -118,14 +113,11 @@ class Digitizer(QWidget):
         ########## All model and GUI signals connection, this is the
         ########## application controller logic
         ##### Connect model state changes to update the GUI widgets
-        # Update input widget immediately when axis config changes
-        model.ax_conf_changed.connect(axconfw.update_axes_view)
-        model.ax_conf_changed.connect(axconfw.update_axes_view)
         # Update plot view displaying axes points and origin
         model.ax_conf_changed.connect(mplw.using_model_redraw_ax_pts_px)
         # Update the coordinate system properties box
         model.coordinate_system_changed.connect(
-                data_coord_props.update_from_plot_extents)
+                data_coord_props.update_ax_extents_from_mplw)
         # Re-draw display of the raw (pixel-space) input points if requested.
         #model.tr_pts_changed.connect(mplw.using_model_redraw_tr_pts_px)
         #model.tr_pts_changed[int].connect(mplw.using_model_redraw_tr_pts_px)
@@ -138,43 +130,6 @@ class Digitizer(QWidget):
         # Error message
         model.value_error.connect(self.show_text)
 
-        ##### Matplotlib widget state is displayed on the axconf widget
-        # Matplotlib widget signals a complete axis setup
-        mplw.valid_x_axis_setup.connect(axconfw.btn_pick_x.set_green)
-        mplw.valid_y_axis_setup.connect(axconfw.btn_pick_y.set_green)
-        # This checks or unchecks the input widget buttons to reflect the
-        # corresponding matplotlib widget current operating mode
-        mplw.mode_sw_default.connect(axconfw.uncheck_all_buttons)
-        mplw.mode_sw_default.connect(tr_conf_table.uncheck_all_buttons)
-        mplw.mode_sw_setup_x_axis.connect(axconfw.btn_pick_x.setChecked)
-        mplw.mode_sw_setup_y_axis.connect(axconfw.btn_pick_y.setChecked)
-
-        ##### Matplotlib widget state changes also update the trace conf widget
-        mplw.mode_sw_add_trace_pts.connect(
-            lambda i: tr_conf_table.btns_pick_trace[i].setChecked(True))
-
-        ##### Axconf widget button signals connect in turn to matplotlib widget
-        # to set the corresponding operation mode. Signals emit bool values.
-        axconfw.btn_pick_x.clicked.connect(mplw.toggle_setup_x_axis_mode)
-        axconfw.btn_pick_y.clicked.connect(mplw.toggle_setup_y_axis_mode)
-        for btn in tr_conf_table.btns_pick_trace:
-            btn.i_clicked.connect(mplw.toggle_add_trace_pts_mode)
-
-        ##### Axconf widget signals also trigger model updates of axes config
-        axconfw.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
-        axconfw.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
-        axconfw.btn_store_config.toggled.connect(model.set_store_config)
-        # Number input boxes. These signals emit float values.
-        axconfw.xstartw.valid_number_entered.connect(model.x_ax.set_ax_start)
-        axconfw.ystartw.valid_number_entered.connect(model.y_ax.set_ax_start)
-        axconfw.xendw.valid_number_entered.connect(model.x_ax.set_ax_end)
-        axconfw.yendw.valid_number_entered.connect(model.y_ax.set_ax_end)
-
-        # When the splitter is clicked, release the fixed height constraint
-#        self.mplw_splitter.splitterMoved.connect(
-#            partial(self.txtw.setMaximumHeight, 10000))
-        # Update source input image for digitizing. Argument is file path.
-        self.load_image.connect(mplw.load_image)
 
     def array2html(self, array, decimal_chr, num_fmt):
         """Make a HTML table with two columns from 2D numpy array
