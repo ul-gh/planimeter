@@ -5,8 +5,14 @@
 License: GPL version 3
 Ulrich Lukas 2019-07-29
 """
-import os
 import sys
+import logging
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+# FIXME: Silence matplotlib for debug only
+logging.getLogger("matplotlib.axes._base").setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
+
+import os
 import pickle
 
 import numpy as np
@@ -19,7 +25,6 @@ from PyQt5.QtWidgets import (
 
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 
-from upylib.pyqt import ipython_pyqt_boilerplate
 from upylib.pyqt_debug import patch_pyqt_event_exception_hook
 
 from digitizer import Digitizer
@@ -46,17 +51,17 @@ class RuntimeConfig():
             with open(self.app_conf.config_file_name, "rb") as f:
                 vars(self).update(pickle.load(f))
         except FileNotFoundError:
-            print("Config file not found, using defaults...")
+            logger.info("Config file not found, using defaults...")
         except IOError as e:
-            print("Error loading config file: ", e)
+            logger.critical("Error loading config file: ", e)
  
     def store_to_configfile(self):
-        print("Storing configuration...")
+        logger.info("Storing configuration...")
         try:
             with open(self.app_conf.config_file_name, "wb") as f:
                 pickle.dump(vars(self), f)
         except IOError as e:
-            print("Error saving config file: ", e)
+            logger.error("Error saving config file: ", e)
 
 
 class MainToolbar(NavigationToolbar2QT):
@@ -160,7 +165,7 @@ class MainWindow(QMainWindow):
         """
         # Store axis configuration if requested
         if self.cw.model.store_ax_conf:
-            print("Storing axis configuration to disk..")
+            logger.info("Storing axis configuration to disk..")
             self.conf.model_conf.store_ax_conf = True
             # Getting plot configuration from Digitizer widget:
             self.conf.x_ax_state = self.cw.model.x_ax._get_state()

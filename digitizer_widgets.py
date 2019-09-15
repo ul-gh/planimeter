@@ -17,7 +17,6 @@ from PyQt5.QtWidgets import (
         QTableWidget, QTableWidgetItem, QSizePolicy
         )
 
-from upylib.u_sci_numbers import sane_str_to_f
 
 class DataCoordProps(QGroupBox):
     def __init__(self, parent, model, mpl_ax):
@@ -190,8 +189,8 @@ class TraceConfTable(QTableWidget):
     @pyqtSlot()
     def update_from_model(self):
         for i in range(self.n_traces):
-            self.item(i, col_xstart).setText(f"{self.x_start_export}")
-            self.item(i, col_xend).setText(f"{self.x_end_export}")
+            self.item(i, self.col_xstart).setText(f"{self.x_start_export}")
+            self.item(i, self.col_xend).setText(f"{self.x_end_export}")
 
     @pyqtSlot()
     def uncheck_all_buttons(self):
@@ -219,7 +218,6 @@ class AxConfWidget(QWidget):
         group_x_layout = QHBoxLayout(self.group_x)
         # Group X contents
         self.btn_pick_x = StyledButton("Pick Points", self)
-        self.btn_pick_x.setAutoExclusive(True)
         self.xstartw = SciLineEdit(
                 self.x_ax.pts_data[0], "X Axis Start Value", model.num_fmt)
         self.xendw = SciLineEdit(
@@ -239,7 +237,6 @@ class AxConfWidget(QWidget):
         group_y_layout = QHBoxLayout(self.group_y)
         # Group X contents
         self.btn_pick_y = StyledButton("Pick Points", self)
-        self.btn_pick_y.setAutoExclusive(True)
         self.ystartw = SciLineEdit(
                 self.y_ax.pts_data[0], "Y Axis Start Value", model.num_fmt)
         self.yendw = SciLineEdit(

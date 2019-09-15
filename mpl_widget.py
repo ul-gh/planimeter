@@ -4,6 +4,9 @@
 
 License: GPL version 3
 """
+import logging
+logger = logging.getLogger(__name__)
+
 import numpy as np
 from numpy import NaN, isnan
 
@@ -11,20 +14,11 @@ from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QMessageBox
 
 import matplotlib.figure
-import matplotlib.image as mpimg
-from matplotlib.patches import Polygon
+import matplotlib.image
+#from matplotlib.patches import Polygon
 import matplotlib.backends.backend_qt5agg as mpl_backend_qt
 
-########## Constants definitions
-# Operation modes
-MODE_DEFAULT = 0
-MODE_SETUP_X_AXIS = 1
-MODE_SETUP_Y_AXIS = 2
-MODE_ADD_TRACE_PTS = 3
-MODE_DRAG = 4
-# 2D NaN row for fast appending to trace or axes points arrays
-NAN_ROW_2D = np.full((1, 2), NaN)
-NAN_ROW_2D.setflags(write=False)
+from upylib.pyqt_debug import logExceptionSlot
 
 
 class MplWidget(QWidget):
@@ -45,24 +39,28 @@ class MplWidget(QWidget):
 
     2019-07-29 Ulrich Lukas
     """
+    ########## Operation modes
+    MODE_DEFAULT = 0
+    MODE_SETUP_X_AXIS = 1
+    MODE_SETUP_Y_AXIS = 2
+    MODE_ADD_TRACE_PTS = 3
+    MODE_DRAG = 4
     ########## Custom Qt signals for interaction with the input widget
-    # Emitted on mode switch
-    mode_sw_default = pyqtSignal()
-    mode_sw_setup_x_axis = pyqtSignal()
-    mode_sw_setup_y_axis = pyqtSignal()
-    # Same but int parameter tells which trace number is requested
-    mode_sw_add_trace_pts = pyqtSignal(int)
+    # Emitted on mode switch, represents the new mode and is used to update
+    # the dependand widgets, i.e. state display in configuration boxes.
+    mode_sw = pyqtSignal(int)
     # Emits True when config OK, False when NOK
     valid_x_axis_setup = pyqtSignal(bool)
     valid_y_axis_setup = pyqtSignal(bool)
+
 
     def __init__(self, parent, model, conf):
         super().__init__(parent)
         ########## Operation state
         # What happens when the plot canvas is clicked..
-        self.op_mode = MODE_DEFAULT
+        self.op_mode = self.MODE_DEFAULT
         # Prevents recursive updates when True
-        self.inhibit_signals = False
+        self.inhibit_model_input_data_updates = False
         self.curr_trace_no = 0
         # This stores the pyplot.Lines2D object when a plot item was picked
         self.picked_obj = None
@@ -83,8 +81,8 @@ class MplWidget(QWidget):
 
         ########## Qt widget setup
         self.setMinimumHeight(100)
-        vbox = QVBoxLayout(self)
-        self.setLayout(vbox)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 6, 0)
         # Message box popup used for various purposes, e.g. points deletion
         self.messagebox = QMessageBox(self)
 
@@ -100,14 +98,14 @@ class MplWidget(QWidget):
         # After removing axis visibility, reset matplotlib layout to fill space
         self.fig.tight_layout(pad=0, rect=(0.001, 0.002, 0.999, 0.999))
         # Add matplotlib widget to this widgets layout
-        vbox.addWidget(self.canvas_qt)
+        layout.addWidget(self.canvas_qt)
 
         ########## Connect non-public events and signals
         self.canvas_qt.mpl_connect("key_press_event", self.on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self.on_figure_enter)
         self.canvas_qt.mpl_connect("button_press_event", self.on_button_press)
         self.canvas_qt.mpl_connect(
-            "button_release_event", self.on_button_release)
+                "button_release_event", self.on_button_release)
         self.canvas_qt.mpl_connect("motion_notify_event", self.on_motion_notify)
         self.canvas_qt.mpl_connect("pick_event", self.on_pick)
 
@@ -116,110 +114,116 @@ class MplWidget(QWidget):
         self.using_model_redraw_tr_pts_px()
 
 
-    @pyqtSlot(str)
+    # Mplwidget operation state transitions
+    def set_mode(self, new_mode: int):
+        logger.debug(f"Entering new mode: {new_mode}.")
+        # Prevent recursive updates for most modes
+        self.inhibit_model_input_data_updates = True
+        if new_mode == self.MODE_SETUP_X_AXIS:
+            logger.info("Pick X axis points!")
+        elif new_mode == self.MODE_SETUP_Y_AXIS:
+            logger.info("Pick Y axis points!")
+        elif new_mode == self.MODE_ADD_TRACE_PTS:
+            logger.info(f"Add points for trace {self.curr_trace_no + 1}!")
+        elif new_mode == self.MODE_DRAG:
+            logger.info("Drag the picked object!")
+        else:
+            logger.info("Switching back to default mode")
+            new_mode = self.MODE_DEFAULT
+            self.picked_obj = None
+            # Default mode displays data updates from outside this widget
+            self.inhibit_model_input_data_updates = False
+        self.op_mode = new_mode
+        self.mode_sw.emit(new_mode)
+
+
+    @logExceptionSlot(str)
     def load_image(self, filename):
         """Load source/input image for digitizing"""
         # Remove existing image from plot canvas if present
         if hasattr(self, "img_handle"):
             self.img_handle.remove()
         try:
-            image = mpimg.imread(filename)
+            image = matplotlib.image.imread(filename)
         except Exception as e:
             self.show_error(e)
         #self.resize(image.shape[0]+200, image.shape[1]+200)
         self.img_handle = self.mpl_ax.imshow(
-            image[-1::-1], interpolation=self.conf.app_conf.img_interpolation,
-            origin="lower", zorder=0,)
+                image[-1::-1],
+                interpolation=self.conf.app_conf.img_interpolation,
+                origin="lower",
+                zorder=0,
+                )
         self.mpl_ax.autoscale(enable=True)
         self.canvas_qt.draw_idle()
         self.mpl_ax.autoscale(enable=False)
 
 
-    @pyqtSlot()
-    def toggle_setup_x_axis(self):
+    @logExceptionSlot()
+    def toggle_setup_x_axis_mode(self):
         x_ax = self.model.x_ax
         # When already in SETUP_X_AXIS mode, switch back to default mode
-        if self.op_mode == MODE_SETUP_X_AXIS:
-            self.sw_to_default()
+        if self.op_mode == self.MODE_SETUP_X_AXIS:
+            self.set_mode(self.MODE_DEFAULT)
         else:
-            # Entering X-axis picking mode.
-            self.op_mode = MODE_SETUP_X_AXIS
-            # Prevent recursive updates
-            self.inhibit_signals = True
-            # Qt signal sets the input widget button to reflect new state
-            self.mode_sw_setup_x_axis.emit()
-            print("Pick X axis points!")
-            # We always start setting the first point first, except if only
-            # the second point is unset. For this case, begin with index 1:
-            ax_pts_invalid = isnan(x_ax.pts_px).any(axis=1).tolist()
-            if ax_pts_invalid == [False, True]:
-                self.pick_and_blit(x_ax.pts_view_obj, 1)
-            else:
-                self.pick_and_blit(x_ax.pts_view_obj, 0)
-    
-    @pyqtSlot()
-    def toggle_setup_y_axis(self):
+            self.set_mode(self.MODE_SETUP_X_AXIS)
+            # Point is actually only displayed when a mouse move event occurs
+            # and point data is updated from valid mouse coordinates.
+            pt_index = x_ax.add_pt_px(np.full(2, NaN))
+            self.pick_and_blit(x_ax.pts_view_obj, pt_index)
+ 
+    @logExceptionSlot()
+    def toggle_setup_y_axis_mode(self):
         y_ax = self.model.y_ax
         # When already in SETUP_Y_AXIS mode, switch back to default mode
-        if self.op_mode == MODE_SETUP_Y_AXIS:
-            self.sw_to_default()
+        if self.op_mode == self.MODE_SETUP_Y_AXIS:
+            self.set_mode(self.MODE_DEFAULT)
         else:
-            # Entering Y-axis picking mode.
-            self.op_mode = MODE_SETUP_Y_AXIS
-            # Prevent recursive updates
-            self.inhibit_signals = True
-            # Qt signal sets the input widget button to reflect new state
-            self.mode_sw_setup_y_axis.emit()
-            print("Pick Y axis points!")
-            # We always start setting the first point first, except if only
-            # the second point is unset. For this case, begin with index 1:
-            ax_pts_invalid = isnan(y_ax.pts_px).any(axis=1).tolist()
-            if ax_pts_invalid == [False, True]:
-                self.pick_and_blit(y_ax.pts_view_obj, 1)
-            else:
-                self.pick_and_blit(y_ax.pts_view_obj, 0)
+            self.set_mode(self.MODE_SETUP_Y_AXIS)
+            # Point is actually only displayed when a mouse move event occurs
+            # and point data is updated from valid mouse coordinates.
+            pt_index = y_ax.add_pt_px(np.full(2, NaN))
+            self.pick_and_blit(y_ax.pts_view_obj, pt_index)
 
-    @pyqtSlot(int)
+    @logExceptionSlot(int)
     def toggle_add_trace_pts_mode(self, trace_no):
         # When already in ADD_TRACE_PTS mode:
         # when same button was clicked, toggle back to default mode.
         # Otherwise, given valid axes setup, set current trace according to
         # the index number and continue selecting trace points. 
-        if (    self.op_mode == MODE_ADD_TRACE_PTS
-                and trace_no == self.curr_trace_no):
-            self.sw_to_default()
+        if (self.op_mode == self.MODE_ADD_TRACE_PTS
+            and trace_no == self.curr_trace_no
+            ):
+            self.set_mode(self.MODE_DEFAULT)
         elif not self.model.axes_setup_is_complete():
             self.show_text("You must configure the axes first!")
-            self.sw_to_default()
+            self.set_mode(self.MODE_DEFAULT)
         else:
             self.curr_trace_no = trace_no
+            tr = self.model.traces[trace_no]
             # If trace points have already been selected, ask whether to
             # delete them first before adding new points.
-            tr = self.model.traces[trace_no]
             if tr.pts_px.shape[0] > 0 and self.confirm_delete():
                 # Clears data objects of curr_trace and triggers a view update
                 tr.init_data()
+            pt_index = tr.add_pt_px(np.full(2, NaN))
+            # View from model update, this is necessary because
+            # self.inhibit_model_input_updates is set
+            tr.pts_view_obj.set_data(*tr.pts_px.T)
+            self.pick_and_blit(tr.pts_view_obj, pt_index)
             # Enter or stay in add trace points mode
-            self.op_mode = MODE_ADD_TRACE_PTS
-            # Prevent recursive updates
-            self.inhibit_signals = True
-            pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
-            tr.pts_view_obj.set_data(*pts_px_new.T)
-            self.pick_and_blit(tr.pts_view_obj, tr.pts_px.shape[0]-1)
-            # Qt signal reflecting the new state and trace number
-            self.mode_sw_add_trace_pts.emit(trace_no)
-            print(f"Pick trace {trace_no + 1} points!")
+            self.set_mode(self.MODE_ADD_TRACE_PTS)
 
-
-    @pyqtSlot()
+    @logExceptionSlot()
     def using_model_redraw_ax_pts_px(self):
         """Updates axes model features displayed in plot widget,
         including origin only if it fits inside the canvas.
 
         This also registers the view objects back into the model.
         """
-        if self.inhibit_signals:
-            # Prevent recursive updates
+        logger.debug("using_model_redraw_ax_pt_px called")
+        # Prevent recursive updates
+        if self.inhibit_model_input_data_updates:
             return
         model = self.model
         ########## X and Y axis:
@@ -255,16 +259,17 @@ class MplWidget(QWidget):
         self.canvas_qt.draw_idle()
 
 
-    @pyqtSlot()
-    @pyqtSlot(int)
+    @logExceptionSlot()
+    @logExceptionSlot(int)
     def using_model_redraw_tr_pts_px(self, trace_no=None):
         """Draw or redraw trace raw pts_px from the data model.
         If the argument is None, update all traces.
 
         This also registers the view objects back into the model.
         """
-        if self.inhibit_signals:
-            # Prevent recursive updates
+        logger.debug("using_model_redraw_tr_pts_px called")
+        # Prevent recursive updates
+        if self.inhibit_model_input_data_updates:
             return
         model = self.model
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
@@ -279,8 +284,8 @@ class MplWidget(QWidget):
         self.canvas_qt.draw_idle()
 
 
-    @pyqtSlot()
-    @pyqtSlot(int)
+    @logExceptionSlot()
+    @logExceptionSlot(int)
     def update_output_view(self, trace_no=None):
         """Draw or redraw a trace from the data model.
         If the argument is None, update all traces.
@@ -315,17 +320,18 @@ class MplWidget(QWidget):
         self.canvas_qt.setFocus()
 
     def on_key_press(self, event):
-        print("Event key pressed is: ", event.key)
+        logger.debug(f"Event key pressed is: {event.key}")
         if event.key == "escape":
             self.sw_to_default()
+
 
     def on_button_press(self, event):
         ########## Mouse click event handler
         # event: Matplotlib event object
         # matplotlib.backend_bases.MouseButton.RIGHT = 3
         if event.button == 3:
-            if self.op_mode != MODE_DEFAULT:
-                self.sw_to_default()
+            if self.op_mode != self.MODE_DEFAULT:
+                self.set_mode(self.MODE_DEFAULT)
             return
         model = self.model
         px_xy = (event.xdata, event.ydata)
@@ -333,54 +339,65 @@ class MplWidget(QWidget):
         if None in px_xy:
             return
         ##### Add X-axis point
-        if self.op_mode == MODE_SETUP_X_AXIS:
-            # Add point to the model. Emits error signal for invalid data
-            model.x_ax.add_pt_px(px_xy)
-
-            if isnan(model.x_ax.pts_px[1]).any():
-                # Normal case, first pixel was just set, pick second one
-                self.pick_and_blit(model.x_ax.pts_view_obj, 1)
+        if self.op_mode == self.MODE_SETUP_X_AXIS:
+            ax = model.x_ax
+            ax.update_pt_px(px_xy, self.picked_obj_index)
+            if isnan(ax.pts_px).any():
+                # First point was added before when MODE_SETUP_X_AXIS was set.
+                # Add new point to the model and continue. Point is actually
+                # only first displayed when a mouse move event occurs
+                # and point data is updated from valid mouse coordinates.
+                pt_index = ax.add_pt_px(px_xy)
+                self.pick_and_blit(ax.pts_view_obj, pt_index)
             else:
-                # Two X-axis points complete. Reset Operating mode.
-                print("X axis points complete")
-                self.valid_x_axis_setup.emit(True)
-                self.sw_to_default()
+                logger.debug(
+                        "This should now be complete and switch to default!")
+                # Two X-axis points set. Validate and reset op mode if valid
+                if ax.valid_pts_px():
+                    logger.info("X axis points complete")
+                    self.valid_x_axis_setup.emit(True)
+                    self.sw_to_default()
+            return
         ##### Add Y-axis point
-        if self.op_mode == MODE_SETUP_Y_AXIS:
-            # Add point to the model. Emits error signal for invalid data
-            model.y_ax.add_pt_px(px_xy)
-            
-            if isnan(model.y_ax.pts_px[1]).any():
-                # Normal case, first pixel was just set, pick second one
-                self.pick_and_blit(model.y_ax.pts_view_obj, 1)
+        if self.op_mode == self.MODE_SETUP_Y_AXIS:
+            ax = model.y_ax
+            ax.update_pt_px(px_xy, self.picked_obj_index)
+            if isnan(ax.pts_px).any():
+                # First point was added before when MODE_SETUP_Y_AXIS was set.
+                # Add new point to the model and continue. Point is actually
+                # only first displayed when a mouse move event occurs
+                # and point data is updated from valid mouse coordinates.
+                pt_index = ax.add_pt_px(px_xy)
+                self.pick_and_blit(ax.pts_view_obj, pt_index)
             else:
-                # Two Y-axis points complete. Reset Operating mode.
-                print("Y axis points complete")
-                self.valid_y_axis_setup.emit(True)
-                self.sw_to_default()
+                # Two X-axis points set. Validate and reset op mode if valid
+                if ax.valid_pts_px():
+                    logger.info("Y axis points complete")
+                    self.valid_y_axis_setup.emit(True)
+                    self.sw_to_default()
+            return
         ##### Add trace point
-        if self.op_mode == MODE_ADD_TRACE_PTS:
-            # Add point to the model. Emits error signal for invalid data
+        if self.op_mode == self.MODE_ADD_TRACE_PTS:
             tr = model.traces[self.curr_trace_no]
-            tr.add_pt_px(px_xy)
-            # Append one new point to the view internal data array and select
-            # the view object for mouse placement of the next point
-            pts_px_new = np.concatenate((tr.pts_px, NAN_ROW_2D), axis=0)
-            tr.pts_view_obj.set_data(*pts_px_new.T)
-            self.pick_and_blit(tr.pts_view_obj, pts_px_new.shape[0]-1)
+            # Add new point to the model at current mouse coordinates
+            pt_index = tr.add_pt_px(px_xy)
+            self.pick_and_blit(tr.pts_view_obj, pt_index)
+            return
+        
 
     def on_pick(self, event):
         # Mouse pick event handling
         # Prevent recursive updates
-        self.inhibit_signals = True
+        self.inhibit_model_input_data_updates = True
         index = event.ind if hasattr(event, "ind") else None
         #self.pick_origin_x = event.mouseevent.xdata
         self.pick_and_blit(event.artist, index)
         self.canvas_qt.draw_idle()
+        
 
     def on_button_release(self, event):
         # The mouse button release event is only used for object drag-mode
-        if self.op_mode != MODE_DRAG:
+        if self.op_mode != self.MODE_DRAG:
             return
         picked_obj = self.picked_obj
         if picked_obj is None:
@@ -393,6 +410,7 @@ class MplWidget(QWidget):
         # Restore default state
         self.sw_to_default()
         #self.picked_obj = None
+
 
     def on_motion_notify(self, event):
         picked_obj = self.picked_obj
@@ -423,6 +441,10 @@ class MplWidget(QWidget):
 
 
     def pick_and_blit(self, view_obj, index):
+        # Select the view object for mouse dragging and prepare bit blitting
+        # operation by capturing the canvas background after temporarily
+        # disabling the selected view object and re-enabling it afterwards.
+        #
         # Model component with view associated data for a mouse-picked object
         # is looked up from the view-model mapping.
         picked_obj_model = self.view_model_map[view_obj]
@@ -441,17 +463,7 @@ class MplWidget(QWidget):
         self.canvas_qt.draw()
         self.background = self.canvas_qt.copy_from_bbox(self.mpl_ax.bbox)
         view_obj.set_visible(True)
-
-
-    def sw_to_default(self):
-        print("Switching back to default mode")
-        self.op_mode = MODE_DEFAULT
-        if self.picked_obj is not None:
-            self.picked_obj = None
-            #self.using_model_redraw_tr_pts_px()
-        self.inhibit_signals = False
-        self.mode_sw_default.emit()
-
+        
 
     def confirm_delete(self):
         self.messagebox.setIcon(QMessageBox.Warning)

@@ -145,21 +145,19 @@ class Digitizer(QWidget):
         # This checks or unchecks the input widget buttons to reflect the
         # corresponding matplotlib widget current operating mode
         mplw.mode_sw_default.connect(axconfw.uncheck_all_buttons)
-        mplw.mode_sw_default.connect(self.tr_conf_table.uncheck_all_buttons)
-        mplw.mode_sw_setup_x_axis.connect(
-            partial(axconfw.btn_pick_x.setChecked, True))
-        mplw.mode_sw_setup_y_axis.connect(
-            partial(axconfw.btn_pick_y.setChecked, True))
+        mplw.mode_sw_default.connect(tr_conf_table.uncheck_all_buttons)
+        mplw.mode_sw_setup_x_axis.connect(axconfw.btn_pick_x.setChecked)
+        mplw.mode_sw_setup_y_axis.connect(axconfw.btn_pick_y.setChecked)
 
         ##### Matplotlib widget state changes also update the trace conf widget
         mplw.mode_sw_add_trace_pts.connect(
-            lambda i: self.tr_conf_table.btns_pick_trace[i].setChecked(True))
+            lambda i: tr_conf_table.btns_pick_trace[i].setChecked(True))
 
         ##### Axconf widget button signals connect in turn to matplotlib widget
         # to set the corresponding operation mode. Signals emit bool values.
-        axconfw.btn_pick_x.clicked.connect(mplw.toggle_setup_x_axis)
-        axconfw.btn_pick_y.clicked.connect(mplw.toggle_setup_y_axis)
-        for btn in self.tr_conf_table.btns_pick_trace:
+        axconfw.btn_pick_x.clicked.connect(mplw.toggle_setup_x_axis_mode)
+        axconfw.btn_pick_y.clicked.connect(mplw.toggle_setup_y_axis_mode)
+        for btn in tr_conf_table.btns_pick_trace:
             btn.i_clicked.connect(mplw.toggle_add_trace_pts_mode)
 
         ##### Axconf widget signals also trigger model updates of axes config

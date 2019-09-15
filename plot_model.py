@@ -20,6 +20,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 import matplotlib.pyplot as plt
 import upylib.u_plot_format as u_format
 
+
 class DataModel(QObject):
     """DataModel
     
@@ -421,18 +422,7 @@ class DataModel(QObject):
     def axes_setup_is_complete(self) -> bool:
         """Returns True if axes configuration is all complete and valid
         """
-        x_ax = self.x_ax
-        y_ax = self.y_ax
-        invalid_x = x_ax.log_scale and isclose(
-            x_ax.pts_data, 0.0, atol=x_ax.atol).any()
-        invalid_y = y_ax.log_scale and isclose(
-            y_ax.pts_data, 0.0, atol=y_ax.atol).any()
-        if (    isnan(x_ax.pts_data).any() or isnan(y_ax.pts_data).any()
-                or isnan(x_ax.pts_px).any() or isnan(y_ax.pts_px).any()
-                or invalid_x or invalid_y
-                ):
-            return False
-        return True
+        return self.x_ax.is_complete() and self.y_ax.is_complete()
     
     def get_px_from_data_bounds(self, x_min_max, y_min_max):
         if self.x_ax.log_scale:
@@ -592,7 +582,7 @@ class DataModel(QObject):
 
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
-        self.calculate_live_outputs()
+        self.calculate_live_outputs() # Emits the "output_data_changed" signal.
         self.coordinate_system_changed.emit()
 
     @staticmethod
@@ -690,11 +680,14 @@ class Trace(QObject):
         self.model.calculate_live_outputs(self.trace_no)
         self.model.tr_pts_changed[int].emit(self.trace_no)
 
-    def add_pt_px(self, xydata):
+    def add_pt_px(self, xydata) -> int:
+        # Returns index of newly added point, here because points are always
+        # appended and later sorted, index is length of self.pts_px - 1
         self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
         # Trigger a full update of the model and view of inputs and outputs
         self.model.calculate_live_outputs(self.trace_no)
         self.model.tr_pts_changed[int].emit(self.trace_no)
+        return self.pts_px.shape[0]
 
     def update_pt_px(self, xydata, index: int):
         # Assuming this is called from the view only thus raw points need not
@@ -711,9 +704,9 @@ class Trace(QObject):
 
     ########## Model-specific implementation part
     def _px_to_linear_data_coords(self, transform_matrix, origin_px) -> None:
-        """Transform image pixel coordinates to linear or
-        linearized (in case of log axes) data coordinate system.
-        """
+        # Transform image pixel coordinates to linear or
+        # linearized (in case of log axes) data coordinate system.
+        #
         # Offset raw points by pixel coordinate offset of data axes origin.
         # pts_px is array of x, y in rows.
         pts_shifted = self.pts_px - origin_px
@@ -830,9 +823,9 @@ class Axis(QObject):
         # Two points defining an axis section in pixel coordinate space
         self.pts_px = np.full((2, 2), NaN)
         # Axis section values in data coordinates
-        self.pts_data = np.array((NaN, NaN))
+        self.pts_data = np.full(2, NaN)
         # Axis section values, linearised in case of log scale, copy otherwise
-        self.pts_data_lin = np.array((NaN, NaN))
+        self.pts_data_lin = np.full(2, NaN)
 
         ########## Associated view object
         self.pts_view_obj = None # Optional: pyplot.Line2D
@@ -849,7 +842,7 @@ class Axis(QObject):
         else:
             self.pts_data[0] = value
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation()
+        self.model.calculate_coordinate_transformation() # Emits notify signals
 
     @pyqtSlot(float)
     def set_ax_end(self, value):
@@ -862,10 +855,11 @@ class Axis(QObject):
         else:
             self.pts_data[1] = value
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation()
+        self.model.calculate_coordinate_transformation() # Emits notify signals
 
     @pyqtSlot(bool)
     def set_log_scale(self, state):
+        logger.debug(f"set_log_state called with state: {state}")
         log_scale = bool(state)
         # Prevent setting logarithmic scale when axes values contain zero
         if log_scale and isclose(self.pts_data, 0.0, atol=self.atol).any():
@@ -874,77 +868,96 @@ class Axis(QObject):
                     "X axis values must not be zero for log axes")
         self.log_scale = log_scale
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation()
+        self.model.calculate_coordinate_transformation() # Emits notify signals
 
-    def add_pt_px(self, xydata):
+    def add_pt_px(self, xydata) -> int:
         """Add a point defining an axis section
-        
+
         xydata: (x, y)-tuple or np.array shape (2, )
 
-        If both points are unset, set the first one.
-        If both points are set, delete second and set first one.
-        If only one point remains, i.e. this is the second one, do a
-        validity check and set second one only if input data is valid.
+        Returns index of newly added point, which is determined
+        automatically.
 
-        Emits error message signal if invalid, emits view update triggers
+        If both points are unset, set the first one.
+        If only one point is unset, set the other one.
+        If both points are set, invalidate second and set first one
+        to start over.
+
+        Leaves model silently untouched if input data
+        would yield a zero-length axis section.
         """
-        print("Debug: add_pt_px called")
+        logger.debug(f"add_pt_px called with xy data: {xydata}")
         pts_px = self.pts_px
         # Results are each True when point is unset..
         unset_1st, unset_2nd = isnan(pts_px).any(axis=1)
-        pt_index = 0
+        index = 0
         if not unset_1st and not unset_2nd:
             # Both points set. Invalidate second point, so that it will be set
             # in next call. NaN values make matplotlib not plot this point.
-            self.pts_px[1] = (NaN, NaN)
+            pts_px[1] = np.full(2, NaN)
         elif not unset_1st or not unset_2nd:
             # Only one point is still unset. (Both not set was covered above)
             # Set index to the remaining unset point:
             if unset_2nd:
-                pt_index = 1
-            # Check if input point is too close to other point, emit
-            # error message and return if this is the case
-            pts_distance = np.linalg.norm(pts_px[pt_index-1] - xydata)
-            print("Debug: xydata, pt_index, pts_px: ", xydata, pt_index, pts_px)
-            if isclose(pts_distance, 0.0, atol=self.atol):
-                self.model.value_error.emit(
-                        "X axis section must not be zero length")
-                return
-        # Point validated or no validity check necessary
-        print("Debug: xydata, pt_index, pts_px: ", xydata, pt_index, pts_px)
-        pts_px[pt_index] = xydata
+                index = 1
+            # else index is still 0
+        pts_distance = np.linalg.norm(pts_px[index-1] - xydata)
+        if isclose(pts_distance, 0.0, atol=self.atol):
+            return index
+        pts_px[index] = xydata
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation()
+        self.model.calculate_coordinate_transformation() # Emits notify signals
+        return index
 
 
     def update_pt_px(self, xydata, index: int):
         """Update axis point in pixel coordinates 
-        
-        Leave values untouched and emit error message if
-        data would yield a zero-length axis section
+
+        Leaves model silently untouched if input data
+        would yield a zero-length axis section.
         """
-        # Check validity if other point is already set
-        other_pt = self.pts_px[index-1]
-        if None not in other_pt:
-            pts_distance = np.linalg.norm(other_pt - xydata)
-            if isclose(pts_distance, 0.0, atol=self.atol):
-                self.model.value_error.emit(
-                        "X axis section must not be zero length")
-                return
-        # Validity check passed or skipped
+        pts_distance = np.linalg.norm(self.pts_px[index-1] - xydata)
+        if isclose(pts_distance, 0.0, atol=self.atol):
+            return
         self.pts_px[index] = xydata
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation()
+        self.model.calculate_coordinate_transformation() # Emits notify signals
 
     def delete_pt_px(self, index: int):
         """Delete axis point in pixel coordinates 
         """
-        self.pts_px[index] = (NaN, NaN)
+        self.pts_px[index] = np.full(2, NaN)
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation()
+        self.model.calculate_coordinate_transformation() # Emits notify signals
 
+    def is_complete(self) -> bool:
+        # Check if this axis setup is complete and valid
+        pts_px = self.pts_px
+        if (    isnan(pts_px).any()
+                or isnan(self.pts_data).any()
+                or  self.log_scale
+                    and isclose(self.pts_data, 0.0, atol=self.atol).any()
+                ):
+            logger.debug("ax.is_complete returns: False")
+            return False
+        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
+        if isclose(pts_distance, 0.0, atol=self.atol):
+            logger.debug("ax.is_complete returns: False")
+            return False
+        logger.debug("ax.is_complete returns: True")
+        return True
+    
+    def valid_pts_px(self) -> bool:
+        # Check if axis section is nonzero length
+        pts_px = self.pts_px
+        if isnan(pts_px).any():
+            return False
+        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
+        if isclose(pts_distance, 0.0, atol=self.atol):
+            return False
+        return True
 
-    def _get_state(self):
+    def _get_state(self) -> dict:
         # Returns the axis configuration attributes as a dictionary
         # Used for persistent storage.
         state = vars(self).copy()
