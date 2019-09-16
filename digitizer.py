@@ -4,15 +4,16 @@
 
 License: GPL version 3
 """
+import logging
+logger = logging.getLogger(__name__)
+
 import io
 import os
 import tempfile
-from functools import partial
 
 import numpy as np
 
 from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
         QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QSplitter, QSizePolicy, QPlainTextEdit, QMessageBox,
@@ -24,6 +25,8 @@ from digitizer_widgets import (
         AxConfWidget, TraceConfTable, ExportSettingsBox, DataCoordProps,
         )
 from plot_model import DataModel
+
+from upylib.pyqt_debug import logExceptionSlot
 
 
 class Digitizer(QWidget):
@@ -76,7 +79,6 @@ class Digitizer(QWidget):
         
         # Push buttons and axis value input fields widget.
         self.axconfw = AxConfWidget(self, model, mplw)
-       
 
         # Layout is two columns of widgets, right is data output and console,
         # left is inputwidget and mpl_widget
@@ -88,18 +90,18 @@ class Digitizer(QWidget):
         # Left side layout is vertical widgets, divided by a splitter
         self.mplw_splitter = mplw_splitter = QSplitter(Qt.Vertical, self)
         mplw_splitter.setChildrenCollapsible(False)
-        self.set_v_stretch(self.axconfw, 0)
-        self.set_v_stretch(self.mplw, 1)
+        self._set_v_stretch(self.axconfw, 0)
+        self._set_v_stretch(self.mplw, 1)
         mplw_splitter.addWidget(self.axconfw)
         mplw_splitter.addWidget(self.mplw)
 
         # Right side layout just the same
         self.io_splitter = io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
-        self.set_v_stretch(self.data_coord_props, 0)
-        self.set_v_stretch(self.export_settings, 0)
-        self.set_v_stretch(self.tr_conf_table, 1)
-        self.set_v_stretch(self.btn_console, 0)
+        self._set_v_stretch(self.data_coord_props, 0)
+        self._set_v_stretch(self.export_settings, 0)
+        self._set_v_stretch(self.tr_conf_table, 1)
+        self._set_v_stretch(self.btn_console, 0)
         io_splitter.addWidget(self.data_coord_props)
         io_splitter.addWidget(self.export_settings)
         io_splitter.addWidget(self.tr_conf_table)
@@ -110,26 +112,8 @@ class Digitizer(QWidget):
         io_splitter.setChildrenCollapsible(False)
         hsplitter.addWidget(io_splitter)
 
-        ########## All model and GUI signals connection, this is the
-        ########## application controller logic
-        ##### Connect model state changes to update the GUI widgets
-        # Update plot view displaying axes points and origin
-        model.ax_conf_changed.connect(mplw.using_model_redraw_ax_pts_px)
-        # Update the coordinate system properties box
-        model.coordinate_system_changed.connect(
-                data_coord_props.update_ax_extents_from_mplw)
-        # Re-draw display of the raw (pixel-space) input points if requested.
-        #model.tr_pts_changed.connect(mplw.using_model_redraw_tr_pts_px)
-        #model.tr_pts_changed[int].connect(mplw.using_model_redraw_tr_pts_px)
-        # Update traces view when model has updated data.
-        # Since the input data is normally set by the view itself, a redraw
-        # of raw input data is not performed when this signal is received.
-        model.output_data_changed.connect(mplw.update_output_view)
-        model.output_data_changed[int].connect(mplw.update_output_view)
-
         # Error message
         model.value_error.connect(self.show_text)
-
 
     def array2html(self, array, decimal_chr, num_fmt):
         """Make a HTML table with two columns from 2D numpy array
@@ -156,7 +140,6 @@ class Digitizer(QWidget):
             s = s.replace(".", decimal_chr)
         return header + s + footer
 
-
     def array2csv(self, array, decimal_chr, num_fmt):
         """Output np.array as CSV text.
         """
@@ -169,8 +152,7 @@ class Digitizer(QWidget):
             s = s.replace(".", decimal_chr)
         return s
 
-
-    @pyqtSlot(str)
+    @logExceptionSlot(str)
     def on_dlg_export_csv(self, filename):
         """Export CSV textstring to file
         """
@@ -181,9 +163,9 @@ class Digitizer(QWidget):
         else:
             decimal_chr = self.conf.app_conf.decimal_chr
         num_fmt = self.conf.app_conf.num_fmt_export
-        print(f"Storing CSV output to file: {filename}")
-        print(f"Number format string used is: {num_fmt}")
-        print(f'==> Decimal point character used is: "{decimal_chr}" <==')
+        logger.info(f"Storing CSV output to file: {filename}\n"
+                    f"Number format string used is: {num_fmt}"
+                    f'==> Decimal point character used is: "{decimal_chr}" <==')
         pts_i_csv = self.array2csv(pts_i, decimal_chr, num_fmt)
         try:
             with open(filename, "x") as f:
@@ -191,8 +173,7 @@ class Digitizer(QWidget):
         except IOError as e:
             self.show_error(e)
 
-
-    @pyqtSlot()
+    @logExceptionSlot()
     def load_clipboard_image(self):
         image = self.clipboard.image()
         if image.isNull():
@@ -201,7 +182,7 @@ class Digitizer(QWidget):
         image.save(self.temp_filename, format="png")
         self.mplw.load_image(self.temp_filename)
 
-    @pyqtSlot()
+    @logExceptionSlot()
     def put_clipboard(self):
         trace = self.model.traces[self.mplw.curr_trace_no]
         pts_i = trace.pts_i
@@ -210,9 +191,9 @@ class Digitizer(QWidget):
         else:
             decimal_chr = self.conf.app_conf.decimal_chr
         num_fmt = self.conf.app_conf.num_fmt_export
-        print("Putting CSV and HTML table data into clipboard!")
-        print(f"Number format string used is: {num_fmt}")
-        print(f'==> Decimal point character used is: "{decimal_chr}" <==')
+        logger.info(f"Putting CSV and HTML table data into clipboard!"
+                    f"Number format string used is: {num_fmt}"
+                    f'==> Decimal point character used is: "{decimal_chr}" <==')
         pts_i_csv = self.array2csv(pts_i, decimal_chr, num_fmt)
         pts_i_html = self.array2html(pts_i, decimal_chr, num_fmt)
         qmd = QMimeData()
@@ -221,28 +202,28 @@ class Digitizer(QWidget):
         qmd.setHtml(pts_i_html)
         self.clipboard.setMimeData(qmd)
 
-
-    def show_error(self, exception):
+    def show_error(self, e: Exception):
         self.messagebox.setIcon(QMessageBox.Critical)
         self.messagebox.setText("<b>Error!</b>")
-        text = " ".join([str(i) for i in exception.args])
-        if hasattr(exception, "filename"):
-            text += f"\nFilename: {exception.filename}"
-        print(text)
+        text = f"Uncaught exception of {type(e)} occurred:\n{str(e)}"
+        if hasattr(e, "filename"):
+                text += f"\nFilename: {e.filename}"
+        logger.critical(text)
         self.messagebox.setInformativeText(text)
         self.messagebox.setWindowTitle("Plot Workbench Error")
         self.messagebox.exec_()
 
-    @pyqtSlot(str)
+    @logExceptionSlot(str)
     def show_text(self, text):
         self.messagebox.setIcon(QMessageBox.Warning)
         self.messagebox.setText("<b>Please note:</b>")
+        logger.info(text)
         self.messagebox.setInformativeText(text)
         self.messagebox.setWindowTitle("Plot Workbench Notification")
         self.messagebox.exec_()
 
     @staticmethod
-    def set_v_stretch(widget, value: int):
+    def _set_v_stretch(widget, value: int):
         # Set widget size policy stretch factor to value
         sp = widget.sizePolicy()
         sp.setVerticalStretch(value)

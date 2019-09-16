@@ -192,9 +192,6 @@ if __name__ == "__main__":
     if app is None:
         app = QApplication(sys.argv)
 
-    # Debug: Enable display of exceptions occurring in pyqtSlots:
-    patch_pyqt_event_exception_hook(app)
-
     mainw = MainWindow()
     mainw.show()
     mainw.activateWindow()

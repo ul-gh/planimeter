@@ -56,7 +56,7 @@ class DataModel(QObject):
     # input data is not performed when this signal is emitted.
     output_data_changed = pyqtSignal([], [int])
     # Mainly used for configuring export options
-    export_options_changed = pyqtSignal()
+    export_settings_changed = pyqtSignal()
     # Emitted from the traces objects and triggers a re-display of the raw
     # (pixel-space) input points. This can be indexed with a trace number.
     tr_pts_changed = pyqtSignal([], [int])
@@ -74,6 +74,7 @@ class DataModel(QObject):
     def __init__(self, parent, conf):
         super().__init__(parent)
         ########## Plot model composition
+
         ##### Two axes
         self.x_ax = Axis(self, conf.x_ax_conf)
         self.y_ax = Axis(self, conf.y_ax_conf)
@@ -81,7 +82,11 @@ class DataModel(QObject):
         self.origin_px = np.full(2, NaN)
         # Matplotlib format code
         self.origin_fmt = conf.model_conf.origin_fmt
-        self.origin_view_obj = None
+        self.origin_view_obj = None # Optional: matplotlib lines2D instance
+        ##### Coordinate transformation matrices
+        self.data_to_px_mat = None # Optional: np.ndarray
+        self.px_to_data_mat = None # Optional: np.ndarray
+        
         ##### Arbitrary number of traces
         # Three traces are default, see main.DefaultConfig
         self.traces = [
@@ -365,7 +370,7 @@ class DataModel(QObject):
             else:
                 self.update_x_step_export()
         self.n_pts_export = n_pts
-        self.export_options_changed.emit()
+        self.export_settings_changed.emit()
 
     @pyqtSlot(float)
     def set_x_step_export(self, x_step: float):
@@ -392,7 +397,7 @@ class DataModel(QObject):
         self.n_pts_export = 1 + int(
                 (self.x_end_export - self.x_start_export) / x_step
                 )
-        self.export_options_changed.emit()
+        self.export_settings_changed.emit()
 
     @pyqtSlot(float)
     def set_n_pts_dec_export(self, n_pts_dec: float):
@@ -418,7 +423,7 @@ class DataModel(QObject):
             self.n_pts_dec_export = n_pts_dec
         # Update total number of points
         self.n_pts_export = N_tot
-        self.export_options_changed.emit()
+        self.export_settings_changed.emit()
 
 
     def axes_setup_is_complete(self) -> bool:
@@ -439,7 +444,7 @@ class DataModel(QObject):
                               (xmin, ymax),
                               (xmax, ymin),
                               (xmax, ymax)))
-        bbox_px = self.origin_px + (self._data_to_px_m @ bbox_data.T).T
+        bbox_px = self.origin_px + (self.data_to_px_mat @ bbox_data.T).T
         xmin_px, ymin_px = np.min(bbox_px, axis=0)
         xmax_px, ymax_px = np.max(bbox_px, axis=0)
         return (xmin_px, xmax_px), (ymin_px, ymax_px)
@@ -449,14 +454,14 @@ class DataModel(QObject):
         coordinate system. Used for backplotting the transformed points.
         """
         # Transformation matrix applied to points as column vectors, plus offset
-        return (self._data_to_px_m @ trace.pts_lin.T).T + self.origin_px
+        return (self.data_to_px_mat @ trace.pts_lin.T).T + self.origin_px
     
     def get_pts_lin_i_px_coords(self, trace) -> np.ndarray:
         """Returns graph interpolated points in linearised pixel data
         coordinate system. Used for backplotting the interpolated points.
         """
         # Transformation matrix applied to points as column vectors, plus offset
-        return (self._data_to_px_m @ trace.pts_lin_i.T).T + self.origin_px
+        return (self.data_to_px_mat @ trace.pts_lin_i.T).T + self.origin_px
 
 
     def calculate_live_outputs(self, trace_no=None):
@@ -576,16 +581,20 @@ class DataModel(QObject):
         # Left-multiplication with inverse scale matrix yields the
         # matrix transforming offset pixel coordinates into data units.
         # "@" is the numpy matrix product operator.
-        self._px_to_data_m = inv_scale_m @ data_inv_base
+        self.px_to_data_m = inv_scale_m @ data_inv_base
         # Also calculating inverse transformation matrix for backplotting
         # interpolated values onto the pixel plane.
         # Scale must be multiplied from the right-hand side.
-        self._data_to_px_m = data_unit_base @ scale_m
+        self.data_to_px_mat = data_unit_base @ scale_m
 
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
         self.calculate_live_outputs() # Emits the "output_data_changed" signal.
         self.coordinate_system_changed.emit()
+
+    def coordinate_transformation_defined(self):
+        return (self.data_to_px_mat is not None
+                and self.px_to_data_m is not None)
 
     @staticmethod
     def _lines_intersection(line1_pts, line2_pts):
@@ -835,6 +844,9 @@ class Axis(QObject):
 
     @pyqtSlot(float)
     def set_ax_start(self, value):
+        # Prevent recursive calls and unnecessary updates
+        if isclose(self.pts_data[0], value, atol=self.atol):
+            return
         if self.log_scale and isclose(value, 0.0, atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
@@ -848,6 +860,9 @@ class Axis(QObject):
 
     @pyqtSlot(float)
     def set_ax_end(self, value):
+        # Prevent recursive calls and unnecessary updates
+        if isclose(self.pts_data[1], value, atol=self.atol):
+            return
         if self.log_scale and isclose(value, 0.0, atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
@@ -860,9 +875,11 @@ class Axis(QObject):
         self.model.calculate_coordinate_transformation() # Emits notify signals
 
     @pyqtSlot(bool)
-    def set_log_scale(self, state):
+    def set_log_scale(self, state=True):
         logger.debug(f"set_log_state called with state: {state}")
-        log_scale = bool(state)
+        # Prevent recursive calls
+        if state == self.log_scale:
+            return
         # Prevent setting logarithmic scale when axes values contain zero
         if log_scale and isclose(self.pts_data, 0.0, atol=self.atol).any():
             log_scale = False

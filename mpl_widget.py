@@ -49,13 +49,19 @@ class MplWidget(QWidget):
     # Emitted on mode switch, represents the new mode and is used to update
     # the dependand widgets, i.e. state display in configuration boxes.
     mode_sw = pyqtSignal(int)
+    # Emitted when the figure canvas is loaded initially or rescaled to inform
+    # about bounding box size etc. Int argument is the current operation mode.
+    canvas_rescaled = pyqtSignal(int)
     # Emits True when config OK, False when NOK
     valid_x_axis_setup = pyqtSignal(bool)
     valid_y_axis_setup = pyqtSignal(bool)
 
-
-    def __init__(self, digitizer):
+    def __init__(self, digitizer, model):
         super().__init__(digitizer)
+        ########## Access to the data model
+        self.model = model
+        self.digitizer = digitizer
+        
         ########## Operation state
         # What happens when the plot canvas is clicked..
         self.op_mode = self.MODE_DEFAULT
@@ -70,9 +76,6 @@ class MplWidget(QWidget):
         self.picked_obj_index = 0
         # App configuration
         self.conf = digitizer.conf
-
-        ########## Access to the data model
-        self.model = digitizer.model
 
         ########## View-Model-Map
         # Mapping of individual view objects (lines, points) to the
@@ -100,23 +103,31 @@ class MplWidget(QWidget):
         # Add matplotlib widget to this widgets layout
         layout.addWidget(self.canvas_qt)
 
-        ########## Connect non-public events and signals
+        ########## Initialise view from model
+        self.update_model_view_axes()
+        if model.coordinate_transformation_defined():
+            self.update_model_view_traces()
+       
+        ########## Connect own and sub-widget signals
         self.canvas_qt.mpl_connect("key_press_event", self.on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self.on_figure_enter)
         self.canvas_qt.mpl_connect("button_press_event", self.on_button_press)
-        self.canvas_qt.mpl_connect(
-                "button_release_event", self.on_button_release)
+        self.canvas_qt.mpl_connect("button_release_event",
+                                   self.on_button_release)
         self.canvas_qt.mpl_connect("motion_notify_event", self.on_motion_notify)
         self.canvas_qt.mpl_connect("pick_event", self.on_pick)
 
-        ########## Initial view update
-        self.using_model_redraw_ax_pts_px()
-        self.using_model_redraw_tr_pts_px()
-
+        ########## Connect foreign signals
+        # Update plot view displaying axes points and origin
+        model.ax_conf_changed.connect(self.update_model_view_axes)
+        # Re-display pixel-space input points when model has updated data.
+        model.output_data_changed.connect(self.update_model_view_traces)
+        model.output_data_changed[int].connect(self.update_model_view_traces)
 
     # Mplwidget operation state transitions
+    @logExceptionSlot()
     def set_mode(self, new_mode: int):
-        logger.debug(f"Entering new mode: {new_mode}.")
+        logger.debug(f"Entering new operation mode: {new_mode}.")
         # Prevent recursive updates for most modes
         self.inhibit_model_input_data_updates = True
         if new_mode == self.MODE_SETUP_X_AXIS:
@@ -135,29 +146,6 @@ class MplWidget(QWidget):
             self.inhibit_model_input_data_updates = False
         self.op_mode = new_mode
         self.mode_sw.emit(new_mode)
-
-
-    @logExceptionSlot(str)
-    def load_image(self, filename):
-        """Load source/input image for digitizing"""
-        # Remove existing image from plot canvas if present
-        if hasattr(self, "img_handle"):
-            self.img_handle.remove()
-        try:
-            image = matplotlib.image.imread(filename)
-        except Exception as e:
-            self.show_error(e)
-        #self.resize(image.shape[0]+200, image.shape[1]+200)
-        self.img_handle = self.mpl_ax.imshow(
-                image[-1::-1],
-                interpolation=self.conf.app_conf.img_interpolation,
-                origin="lower",
-                zorder=0,
-                )
-        self.mpl_ax.autoscale(enable=True)
-        self.canvas_qt.draw_idle()
-        self.mpl_ax.autoscale(enable=False)
-
 
     @logExceptionSlot()
     def toggle_setup_x_axis_mode(self):
@@ -196,7 +184,7 @@ class MplWidget(QWidget):
             ):
             self.set_mode(self.MODE_DEFAULT)
         elif not self.model.axes_setup_is_complete():
-            self.show_text("You must configure the axes first!")
+            self.digitizer.show_text("You must configure the axes first!")
             self.set_mode(self.MODE_DEFAULT)
         else:
             self.curr_trace_no = trace_no
@@ -215,11 +203,13 @@ class MplWidget(QWidget):
             self.set_mode(self.MODE_ADD_TRACE_PTS)
 
     @logExceptionSlot()
-    def using_model_redraw_ax_pts_px(self):
+    def update_model_view_axes(self):
         """Updates axes model features displayed in plot widget,
         including origin only if it fits inside the canvas.
 
-        This also registers the view objects back into the model.
+        This also registers the view objects back into the model
+        and emits a signal informing when the canvas has been
+        re-drawn.
         """
         logger.debug("using_model_redraw_ax_pt_px called")
         # Prevent recursive updates
@@ -257,39 +247,14 @@ class MplWidget(QWidget):
         self.mpl_ax.relim()
         self.mpl_ax.autoscale(None)
         self.canvas_qt.draw_idle()
-
-
-    @logExceptionSlot()
-    @logExceptionSlot(int)
-    def using_model_redraw_tr_pts_px(self, trace_no=None):
-        """Draw or redraw trace raw pts_px from the data model.
-        If the argument is None, update all traces.
-
-        This also registers the view objects back into the model.
-        """
-        logger.debug("using_model_redraw_tr_pts_px called")
-        # Prevent recursive updates
-        if self.inhibit_model_input_data_updates:
-            return
-        model = self.model
-        traces = model.traces if trace_no is None else [model.traces[trace_no]]
-        for tr in traces:
-            ########## Update raw pixel points
-            if tr.pts_view_obj is not None:
-                tr.pts_view_obj.set_data(*tr.pts_px.T)
-            else:
-                tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
-                self.view_model_map[tr.pts_view_obj] = tr
-        # Anyways, after updating point markers, redraw plot canvas:
-        self.canvas_qt.draw_idle()
-
+        self.canvas_rescaled.emit(self.op_mode)
 
     @logExceptionSlot()
     @logExceptionSlot(int)
-    def update_output_view(self, trace_no=None):
-        """Draw or redraw a trace from the data model.
-        If the argument is None, update all traces.
-        """
+    def update_model_view_traces(self, trace_no=None):
+        # Draw or redraw a trace from the data model.
+        # If the argument is None, update all traces.
+        # This also registers the view objects back into the model.
         model = self.model
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
         ########## Update interpolated trace if available
@@ -309,9 +274,29 @@ class MplWidget(QWidget):
                 # Trace handle for pts_lin_i exists. Update data.
                 view_obj.set_data(*pts_i_px.T)
         ########## After updating all traces and markers, redraw plot canvas
-        self.mpl_ax.relim()
-        self.mpl_ax.autoscale(None)
         self.canvas_qt.draw_idle()
+
+    @logExceptionSlot(str)
+    def load_image(self, filename):
+        """Load source/input image for digitizing"""
+        # Remove existing image from plot canvas if present
+        if hasattr(self, "img_handle"):
+            self.img_handle.remove()
+        try:
+            image = matplotlib.image.imread(filename)
+        except Exception as e:
+            self.digitizer.show_error(e)
+        #self.resize(image.shape[0]+200, image.shape[1]+200)
+        self.img_handle = self.mpl_ax.imshow(
+                image[-1::-1],
+                interpolation=self.conf.app_conf.img_interpolation,
+                origin="lower",
+                zorder=0,
+                )
+        self.mpl_ax.autoscale(enable=True)
+        self.canvas_qt.draw_idle()
+        self.mpl_ax.autoscale(enable=False)
+        self.canvas_rescaled.emit(self.op_mode)
 
 
     def on_figure_enter(self, event):
@@ -323,7 +308,6 @@ class MplWidget(QWidget):
         logger.debug(f"Event key pressed is: {event.key}")
         if event.key == "escape":
             self.set_mode(self.MODE_DEFAULT)
-
 
     def on_button_press(self, event):
         ########## Mouse click event handler
@@ -383,7 +367,6 @@ class MplWidget(QWidget):
             pt_index = tr.add_pt_px(px_xy)
             self.pick_and_blit(tr.pts_view_obj, pt_index)
             return
-        
 
     def on_pick(self, event):
         # Mouse pick event handling
@@ -393,7 +376,6 @@ class MplWidget(QWidget):
         #self.pick_origin_x = event.mouseevent.xdata
         self.pick_and_blit(event.artist, index)
         self.canvas_qt.draw_idle()
-        
 
     def on_button_release(self, event):
         # The mouse button release event is only used for object drag-mode
@@ -410,7 +392,6 @@ class MplWidget(QWidget):
         # Restore default state
         self.set_mode(self.MODE_DEFAULT)
         #self.picked_obj = None
-
 
     def on_motion_notify(self, event):
         picked_obj = self.picked_obj
@@ -439,7 +420,6 @@ class MplWidget(QWidget):
                 # FIXME: Not implemented, move polygons along X etc.
                 pass
 
-
     def pick_and_blit(self, view_obj, index):
         # Select the view object for mouse dragging and prepare bit blitting
         # operation by capturing the canvas background after temporarily
@@ -463,30 +443,15 @@ class MplWidget(QWidget):
         self.canvas_qt.draw()
         self.background = self.canvas_qt.copy_from_bbox(self.mpl_ax.bbox)
         view_obj.set_visible(True)
-        
 
     def confirm_delete(self):
-        self.messagebox.setIcon(QMessageBox.Warning)
-        self.messagebox.setText(
+        messagebox = self.digitizer.messagebox
+        messagebox.setIcon(QMessageBox.Warning)
+        messagebox.setText(
             "<b>There are trace points already selected.\n"
             "Discard or save and add more Points?</b>"
             )
-        self.messagebox.setWindowTitle("Confirm Delete")
-        self.messagebox.setStandardButtons(
+        messagebox.setWindowTitle("Confirm Delete")
+        messagebox.setStandardButtons(
                 QMessageBox.Save | QMessageBox.Discard)
-        return self.messagebox.exec_() == QMessageBox.Discard
-
-
-    def show_error(self, error):
-        self.messagebox.setIcon(QMessageBox.Warning)
-        self.messagebox.setText("<b>Error!</b>")
-        self.messagebox.setInformativeText(error.args[0])
-        self.messagebox.setWindowTitle("Input Error")
-        self.messagebox.exec_()
-
-    def show_text(self, text):
-        self.messagebox.setIcon(QMessageBox.Warning)
-        self.messagebox.setText("<b>Please note:</b>")
-        self.messagebox.setInformativeText(text)
-        self.messagebox.setWindowTitle("Plot Workbench Notification")
-        self.messagebox.exec_()
+        return messagebox.exec_() == QMessageBox.Discard

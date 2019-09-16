@@ -55,13 +55,22 @@ class DataCoordProps(QGroupBox):
         layout.addWidget(self.y_min_edit, 2, 1)
         layout.addWidget(self.y_max_edit, 2, 2)
 
-        ######### DataCoordProps Signals
+        ########## Initialise view from model
+        self.update_model_view()
+        self.update_mplw_view(mplw.MODE_DEFAULT)
+
+        ########## Connect own and sub-widget signals
         self.x_min_edit.valid_number_entered.connect(self._set_model_px_bounds)
         self.x_max_edit.valid_number_entered.connect(self._set_model_px_bounds)
         self.y_min_edit.valid_number_entered.connect(self._set_model_px_bounds)
         self.y_max_edit.valid_number_entered.connect(self._set_model_px_bounds)
 
+        ########## Connect foreign signals
+        model.coordinate_system_changed.connect(self.update_model_view)
+        # Update when matplotlib widget changes operating mode
+        mplw.canvas_rescaled.connect(self.update_mplw_view)
 
+    @logExceptionSlot()
     def _set_model_px_bounds(self):
         x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
         y_min_max = self.y_min_edit.value(), self.y_max_edit.value()
@@ -69,9 +78,13 @@ class DataCoordProps(QGroupBox):
                 x_min_max, y_min_max)
         self.mplw.mpl_ax.set_xbound(x_min_max)
         self.mplw.mpl_ax.set_ybound(y_min_max)
-    
+
     @logExceptionSlot()
-    def update_ax_extents_from_mplw(self):
+    def update_model_view(self):
+        logger.debug("Not yet implemented")
+
+    @logExceptionSlot(int)
+    def update_mplw_view(self, op_mode):
         x_min, x_max = self.mplw.mpl_ax.get_xbound()
         y_min, y_max = self.mplw.mpl_ax.get_ybound()
         self.x_min_edit.setValue(x_min)
@@ -85,12 +98,10 @@ class ExportSettingsBox(QGroupBox):
         super().__init__("Trace Export Settings", digitizer)
         ######### Shortcuts to the data model
         self.model = model
-        self.x_ax = model.x_ax
-        self.y_ax = model.y_ax
+        self.mplw = mplw
 
         layout = QHBoxLayout(self)
 #        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
-
         # Export Data button
         self.btn_export = StyledButton("Export\nData", self)
 
@@ -106,8 +117,6 @@ class ExportSettingsBox(QGroupBox):
                 )
         self.btn_lin_export = QRadioButton("Lin")
         self.btn_log_export = QRadioButton("Log")
-        self.btn_lin_export.setChecked(not self.model.x_log_scale_export)
-        self.btn_log_export.setChecked(self.model.x_log_scale_export)
         layout.addWidget(self.x_start_export_edit)
         layout.addWidget(self.x_end_export_edit)
         layout.addWidget(self.btn_lin_export)
@@ -116,16 +125,30 @@ class ExportSettingsBox(QGroupBox):
 
         ########## Initialise view from model
         self.update_model_view()
+        self.update_mplw_view(mplw.MODE_DEFAULT)
 
-    ########## Slots
+        ########## Connect own and sub-widget signals
+        logger.debug("Not yet implemented")
+
+        ########## Connect foreign signals
+        model.export_settings_changed.connect(self.update_model_view)
+        # Update when matplotlib widget changes operating mode
+        mplw.mode_sw.connect(self.update_mplw_view)
+
     @logExceptionSlot()
     def update_model_view(self):
-        pass
+        self.btn_lin_export.setChecked(not self.model.x_log_scale_export)
+        self.btn_log_export.setChecked(self.model.x_log_scale_export)
+
+    @logExceptionSlot(int)
+    def update_mplw_view(self, op_mode):
+        logger.debug("Not yet implemented")
 
 
 class TraceConfTable(QTableWidget):
     def __init__(self, digitizer, model, mplw):
         self.model = model
+        self.mplw = mplw
         headers = ["Name", "Pick Points", "Export", "X Start", "X End",
                    "Interpolation", "N Points"]
         self.col_xstart = headers.index("X Start")
@@ -166,20 +189,20 @@ class TraceConfTable(QTableWidget):
         self.update_model_view()
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
-        ########## Connect foreign signals from model and matplotlib widget
+        ########## Connect own and sub-widget signals
+        #self.itemSelectionChanged.connect(self._handle_selection)
+        for btn in self.btns_pick_trace:
+            btn.i_clicked.connect(mplw.set_mode_add_trace_pts)
+
+        ########## Connect foreign signals
         # Update when trace config changes, e.g. if traces are added or renamed
         model.tr_conf_changed.connect(self.update_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.mode_sw.connect(self.update_mplw_view)
 
-        ########## Connect own and sub-widget signals to model attribute setters
-        #self.itemSelectionChanged.connect(self._handle_selection)
-        for btn in self.btns_pick_trace:
-            btn.i_clicked.connect(mplw.toggle_add_trace_pts_mode)
-
     @logExceptionSlot()
     def update_model_view(self):
-        assert False, "Not yet implemented, report to someone"
+        logger.debug("Not yet implemented")
 
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
@@ -189,7 +212,6 @@ class TraceConfTable(QTableWidget):
         else:
             for btn in self.btns_pick_trace:
                 btn.setChecked(False)
-
 
 #    def _handle_selection(self):
 #        self.sel_traces = sel_traces = {
@@ -289,15 +311,9 @@ class AxConfWidget(QWidget):
         self.update_model_view()
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
-        ########## Connect foreign signals from model and matplotlib widget
-        # Update when axes config changes
-        model.ax_conf_changed.connect(self.update_model_view)
-        # Update when matplotlib widget changes operating mode
-        mplw.mode_sw.connect(self.update_mplw_view)
-
-        ########## Connect own sub-widget signals to model attribute setters
-        self.btn_pick_x.clicked.connect(mplw.toggle_setup_x_axis_mode)
-        self.btn_pick_y.clicked.connect(mplw.toggle_setup_y_axis_mode)
+        ########## Connect own and sub-widget signals
+        self.btn_pick_x.toggled.connect(mplw.set_mode_setup_x_axis)
+        self.btn_pick_y.toggled.connect(mplw.set_mode_setup_y_axis)
         self.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
         self.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
         self.btn_store_config.toggled.connect(model.set_store_config)
@@ -306,6 +322,12 @@ class AxConfWidget(QWidget):
         self.ystart_edit.valid_number_entered.connect(model.y_ax.set_ax_start)
         self.xend_edit.valid_number_entered.connect(model.x_ax.set_ax_end)
         self.yend_edit.valid_number_entered.connect(model.y_ax.set_ax_end)
+
+        ########## Connect foreign signals
+        # Update when axes config changes
+        model.ax_conf_changed.connect(self.update_model_view)
+        # Update when matplotlib widget changes operating mode
+        mplw.mode_sw.connect(self.update_mplw_view)
 
     ########## Slots
     # Updates state of the Matplotlib widget display by setting down the
