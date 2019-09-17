@@ -35,7 +35,7 @@ class Digitizer(QWidget):
     This is:
         * A matplotlib based view component providing
           plot and graphic displa/y with mouse interaction
-        * Various ext and button input widgets for setting model properties
+        * Various text and button input widgets for setting model properties
         * Clipboard access and file import/export functions
     
     2019-09-17 Ulrich Lukas

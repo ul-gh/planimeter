@@ -170,14 +170,26 @@ class MplWidget(QWidget):
     @logExceptionSlot()
     @logExceptionSlot(int)
     def update_model_view_traces(self, trace_no=None):
-        # Draw or redraw a trace from the data model.
-        # If the argument is None, update all traces.
-        # This also registers the view objects back into the model.
+        """Draw or redraw a trace from the data model.
+        
+        If the argument is None, update all traces.
+        This also registers the view objects back into the model.
+        """
+        # Prevent recursive updates
+        if self.inhibit_model_input_data_updates:
+            return
         model = self.model
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
         ########## Update interpolated trace if available
         for tr in traces:
-            # Draw or update data on an interpolated plot line.
+            ##### STEP A: Draw or update raw pixel points
+            view_obj = tr.pts_view_obj
+            if view_obj is None:
+                view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
+                self.view_model_map[view_obj] = tr
+            else:
+                view_obj.set_data(*tr.pts_px.T)
+            ##### STEP B: Draw or update interpolated pixel points
             # Backtransform trace to pixel data coordinate system
             pts_i_px = model.get_pts_lin_i_px_coords(tr)
             view_obj = tr.pts_i_view_obj
@@ -298,9 +310,9 @@ class MplWidget(QWidget):
             # Clears data objects of curr_trace and triggers a view update
             tr.init_data()
         pt_index = tr.add_pt_px(np.full(2, NaN))
-        # View from model update, this is necessary because
-        # self.inhibit_model_input_updates is set
-        tr.pts_view_obj.set_data(*tr.pts_px.T)
+        # Initial view from model update, this is necessary because
+        # self.inhibit_model_input_updates is set and we need a first view obj.
+        self.update_model_view_traces(self.curr_trace_no)
         self._pick_and_blit(tr.pts_view_obj, pt_index)
         # Enter or stay in add trace points mode
         self.set_mode(self.MODE_ADD_TRACE_PTS)

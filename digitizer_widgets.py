@@ -44,7 +44,7 @@ class DataCoordProps(QGroupBox):
         self.y_min_edit = SciLineEdit()
         self.y_max_edit = SciLineEdit()
         # Layout setup
-        self._setup_layout()
+        self._set_layout()
         
         ########## Initialise view from model
         self.update_model_view()

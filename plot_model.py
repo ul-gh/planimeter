@@ -158,7 +158,7 @@ class DataModel(QObject):
         both pixel-to-data direction and reverse direction are defined
         """
         return (self.data_to_px_mat is not None
-                and self.px_to_data_m is not None)
+                and self.px_to_data_mat is not None)
 
     ########## Export related functions
     def wip_export(self, tr):
@@ -480,9 +480,9 @@ class DataModel(QObject):
         x_scale = np.linalg.norm(x_ax_vect) / (x_ax_data_far - x_ax_data_near) 
         y_scale = np.linalg.norm(y_ax_vect) / (y_ax_data_far - y_ax_data_near)
         # Matrix representation of scale
-        scale_m = np.diag((x_scale, y_scale))
+        scale_mat = np.diag((x_scale, y_scale))
         # Inverse scale for opposite transformation direction
-        inv_scale_m = np.diag((1/x_scale, 1/y_scale))
+        inv_scale_mat = np.diag((1/x_scale, 1/y_scale))
 
         # Axes unit base vectors, unit length in pixel coordinates
         x_ax_uvect = x_ax_vect / np.linalg.norm(x_ax_vect)
@@ -500,11 +500,11 @@ class DataModel(QObject):
         # Left-multiplication with inverse scale matrix yields the
         # matrix transforming offset pixel coordinates into data units.
         # "@" is the numpy matrix product operator.
-        self.px_to_data_m = inv_scale_m @ data_inv_base
+        self.px_to_data_mat = inv_scale_mat @ data_inv_base
         # Also calculating inverse transformation matrix for backplotting
         # interpolated values onto the pixel plane.
         # Scale must be multiplied from the right-hand side.
-        self.data_to_px_mat = data_unit_base @ scale_m
+        self.data_to_px_mat = data_unit_base @ scale_mat
 
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
@@ -531,7 +531,8 @@ class DataModel(QObject):
                 tr.init_data()
             else:
                 # These calls do the heavy work
-                tr._px_to_linear_data_coords(self._px_to_data_m, self.origin_px)
+                tr._px_to_linear_data_coords(
+                        self.px_to_data_mat, self.origin_px)
                 tr._sort_pts()
                 # Anyways:
                 tr._interpolate_view_data()
@@ -769,7 +770,7 @@ class Trace(QObject):
 #        self.pts_px = self.pts_px[unique_ids]
         ids = np.argsort(self.pts_lin, axis=0)
         self.pts_lin = self.pts_lin[ids]
-        self.pts_px = self.ps_px[ids]
+        self.pts_px = self.pts_px[ids]
 
     def _interpolate_view_data(self) -> None:
         # Acts on linear coordinates.
