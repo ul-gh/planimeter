@@ -432,11 +432,20 @@ class DataModel(QObject):
         return self.x_ax.is_complete() and self.y_ax.is_complete()
     
     def get_px_from_data_bounds(self, x_min_max, y_min_max):
+        if not self.axes_setup_is_complete():
+            self.value_error.emit("You must configure both axes first!")
+            return None
         if self.x_ax.log_scale:
+            if True in [i < self.atol for i in x_min_max]:
+                self.value_error.emit("Value must be greater 0 for log axes")
+                return None
             xmin, xmax = np.log((x_min_max)) / np.log(self.x_ax.log_base)
         else:
             xmin, xmax = x_min_max
         if self.y_ax.log_scale:
+            if True in [i < self.atol for i in y_min_max]:
+                self.value_error.emit("Value must be greater 0 for log axes")
+                return None
             ymin, ymax = np.log((y_min_max)) / np.log(self.y_ax.log_base)
         else:
             ymin, ymax = y_min_max
@@ -855,6 +864,7 @@ class Axis(QObject):
                     "X axis values must be numerically different")
         else:
             self.pts_data[0] = value
+        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.calculate_coordinate_transformation() # Emits notify signals
 
@@ -871,21 +881,24 @@ class Axis(QObject):
                     "X axis values must be numerically different")
         else:
             self.pts_data[1] = value
+        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.calculate_coordinate_transformation() # Emits notify signals
 
     @pyqtSlot(bool)
     def set_log_scale(self, state=True):
         logger.debug(f"set_log_state called with state: {state}")
-        # Prevent recursive calls
+        # Prevent recursive or duplicate calls
         if state == self.log_scale:
             return
         # Prevent setting logarithmic scale when axes values contain zero
-        if log_scale and isclose(self.pts_data, 0.0, atol=self.atol).any():
-            log_scale = False
+        if state and isclose(self.pts_data, 0.0, atol=self.atol).any():
+            self.log_scale = False
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
-        self.log_scale = log_scale
+            return
+        self.log_scale = state
+        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.calculate_coordinate_transformation() # Emits notify signals
 
@@ -924,6 +937,7 @@ class Axis(QObject):
         if isclose(pts_distance, 0.0, atol=self.atol):
             return index
         pts_px[index] = xydata
+        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.calculate_coordinate_transformation() # Emits notify signals
         return index
@@ -957,13 +971,13 @@ class Axis(QObject):
                 or  self.log_scale
                     and isclose(self.pts_data, 0.0, atol=self.atol).any()
                 ):
-            logger.debug("ax.is_complete returns: False")
+            #logger.debug("ax.is_complete returns: False")
             return False
         pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
         if isclose(pts_distance, 0.0, atol=self.atol):
-            logger.debug("ax.is_complete returns: False")
+            #logger.debug("ax.is_complete returns: False")
             return False
-        logger.debug("ax.is_complete returns: True")
+        #logger.debug("ax.is_complete returns: True")
         return True
     
     def valid_pts_px(self) -> bool:
@@ -976,7 +990,7 @@ class Axis(QObject):
             return False
         return True
 
-    def _get_state(self) -> dict:
+    def get_state(self) -> dict:
         # Returns the axis configuration attributes as a dictionary
         # Used for persistent storage.
         state = vars(self).copy()

@@ -25,6 +25,7 @@ from upylib.pyqt_debug import logExceptionSlot
 class DataCoordProps(QGroupBox):
     def __init__(self, digitizer, model, mplw):
         super().__init__("Data Coordinate System", digitizer)
+        self.digitizer = digitizer
         self.model = model
         self.mplw = mplw
 
@@ -71,26 +72,33 @@ class DataCoordProps(QGroupBox):
         mplw.canvas_rescaled.connect(self.update_mplw_view)
 
     @logExceptionSlot()
-    def _set_model_px_bounds(self):
-        x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
-        y_min_max = self.y_min_edit.value(), self.y_max_edit.value()
-        x_min_max_px, y_min_max_px = self.model.get_px_from_data_bounds(
-                x_min_max, y_min_max)
-        self.mplw.mpl_ax.set_xbound(x_min_max)
-        self.mplw.mpl_ax.set_ybound(y_min_max)
-
-    @logExceptionSlot()
     def update_model_view(self):
-        logger.debug("Not yet implemented")
-
-    @logExceptionSlot(int)
-    def update_mplw_view(self, op_mode):
-        x_min, x_max = self.mplw.mpl_ax.get_xbound()
-        y_min, y_max = self.mplw.mpl_ax.get_ybound()
+        x_min, x_max = self.model.x_ax.pts_data
+        y_min, y_max = self.model.y_ax.pts_data
         self.x_min_edit.setValue(x_min)
         self.x_max_edit.setValue(x_max)
         self.y_min_edit.setValue(y_min)
         self.y_max_edit.setValue(y_max)
+
+
+    @logExceptionSlot(int)
+    def update_mplw_view(self, op_mode):
+        #x_min, x_max = self.mplw.mpl_ax.get_xbound()
+        #y_min, y_max = self.mplw.mpl_ax.get_ybound()
+        pass
+
+
+    @logExceptionSlot()
+    def _set_model_px_bounds(self, _): # Signal value not needed
+        x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
+        y_min_max = self.y_min_edit.value(), self.y_max_edit.value()
+        # Displays error message box for invalid data
+        bbox = self.model.get_px_from_data_bounds(x_min_max, y_min_max)
+        if bbox is not None:
+            x_min_max_px, y_min_max_px = bbox
+            self.mplw.mpl_ax.set_xbound(x_min_max)
+            self.mplw.mpl_ax.set_ybound(y_min_max)
+            self.mplw.canvas_qt.draw_idle()
 
 
 class ExportSettingsBox(QGroupBox):
@@ -192,7 +200,7 @@ class TraceConfTable(QTableWidget):
         ########## Connect own and sub-widget signals
         #self.itemSelectionChanged.connect(self._handle_selection)
         for btn in self.btns_pick_trace:
-            btn.i_clicked.connect(mplw.set_mode_add_trace_pts)
+            btn.i_toggled.connect(mplw.set_mode_add_trace_pts)
 
         ########## Connect foreign signals
         # Update when trace config changes, e.g. if traces are added or renamed
@@ -346,11 +354,10 @@ class AxConfWidget(QWidget):
         self.set_green_x_ax(x_ax.is_complete())
         self.set_green_y_ax(y_ax.is_complete())
         # Update axis section value input boxes
-        x0, x1, y0, y1 = *x_ax.pts_data, *y_ax.pts_data
-        self.xstart_edit.setValue(x0)
-        self.xend_edit.setValue(x1)
-        self.ystart_edit.setValue(y0)
-        self.yend_edit.setValue(y1)
+        self.xstart_edit.setValue(x_ax.pts_data[0])
+        self.xend_edit.setValue(x_ax.pts_data[1])
+        self.ystart_edit.setValue(y_ax.pts_data[0])
+        self.yend_edit.setValue(y_ax.pts_data[1])
         # Update log/lin radio buttons.
         self.btn_lin_x.setChecked(not x_ax.log_scale)
         self.btn_log_x.setChecked(x_ax.log_scale)
@@ -384,22 +391,29 @@ class StyledButton(QPushButton):
         self.setMinimumSize(min_size)
 
     @pyqtSlot(bool)
-    def set_green(self, state):
+    def set_green(self, state=True):
         style = "background-color: Palegreen" if state else ""
         self.setStyleSheet(style)
 
 
 class NumberedButton(StyledButton):
     """This subclass of QPushButton adds a number index property and
-    emits a corresponding integer signal
+    emits a corresponding signal emitting index and new state.
     """
-    i_clicked = pyqtSignal(int)
+    i_toggled = pyqtSignal(int, bool)
     def __init__(self, index, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.index = index
-        self.clicked.connect(
-                partial(self.i_clicked.emit, index)
+        self._index = index
+        self.toggled.connect(
+                partial(self.i_toggled.emit, index)
                 )
+
+    def index(self) ->int:
+        return self._index
+
+    @pyqtSlot(int)
+    def setIndex(self, index: int):
+        self._index = index
 
 
 class SciLineEdit(QLineEdit):
@@ -433,7 +447,8 @@ class SciLineEdit(QLineEdit):
     
     def value(self) -> float:
         return self._value
-    
+
+    @pyqtSlot(float)
     def setValue(self, value: float):
         self._value = value
         text = "" if isnan(value) else f"{value:{self._num_fmt}}"

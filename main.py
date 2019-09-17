@@ -16,6 +16,7 @@ import os
 import pickle
 
 import numpy as np
+from numpy import NaN
 
 from PyQt5.QtCore import Qt, QDir, QSize, pyqtSlot
 from PyQt5.QtGui import QIcon
@@ -24,8 +25,6 @@ from PyQt5.QtWidgets import (
         )
 
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
-
-from upylib.pyqt_debug import patch_pyqt_event_exception_hook
 
 from digitizer import Digitizer
 from default_configuration import APPLICATION, DATA_MODEL, TRACE, X_AXIS, Y_AXIS
@@ -168,8 +167,8 @@ class MainWindow(QMainWindow):
             logger.info("Storing axis configuration to disk..")
             self.conf.model_conf.store_ax_conf = True
             # Getting plot configuration from Digitizer widget:
-            self.conf.x_ax_state = self.cw.model.x_ax._get_state()
-            self.conf.y_ax_state = self.cw.model.y_ax._get_state()
+            self.conf.x_ax_state = self.cw.model.x_ax.get_state()
+            self.conf.y_ax_state = self.cw.model.y_ax.get_state()
         else:
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None
@@ -195,9 +194,6 @@ if __name__ == "__main__":
     mainw = MainWindow()
     mainw.show()
     mainw.activateWindow()
-    
-    # IPython integration via IPython Qt5 event loop
-    #ipython_pyqt_boilerplate(app)
 
     # Set up some shortcuts for command line interactive use.
     ax = mainw.cw.mplw.mpl_ax

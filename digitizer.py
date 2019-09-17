@@ -47,45 +47,39 @@ class Digitizer(QWidget):
     def __init__(self, mainw, conf):
         super().__init__(mainw)
         self.conf = conf
-        # System clipboard access
-        self.clipboard = QApplication.instance().clipboard()
         # Filename for temporary storage of clipboard images
         self.temp_filename = os.path.join(
                 tempfile.gettempdir(),
                 f"plot_workbench_clipboard_paste_image.png"
                 )
-        
+
         # Plot interactive data model
         self.model = model = DataModel(self, conf)
-
-        # General text or warning message
+        # General text or warning message. This is accessed by some
+        # sub-widgets so the instance must be created early
         self.messagebox = QMessageBox(self)
-
+        # System clipboard access
+        self.clipboard = QApplication.instance().clipboard()
         # Matplotlib widget
         self.mplw = mplw = MplWidget(self, model)
-
+        # Data Coordinate Display and Edit Box
+        self.data_coord_props = DataCoordProps(self, model, mplw)
+        # Export options box
+        self.export_settings = ExportSettingsBox(self, model, mplw)
+        # Traces properties are displayed in a QTableWidget
+        self.tr_conf_table = TraceConfTable(self, model, mplw)
+        # Push buttons and axis value input fields widget.
+        self.axconfw = AxConfWidget(self, model, mplw)
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
-
-        # Data Coordinate Display and Edit Box
-        self.data_coord_props = DataCoordProps(self, model, mplw)
-        
-        # Export options box
-        self.export_settings = ExportSettingsBox(self, model, mplw)
-
-        # Traces properties are displayed in a QTableWidget
-        self.tr_conf_table = TraceConfTable(self, model, mplw)
-        
-        # Push buttons and axis value input fields widget.
-        self.axconfw = AxConfWidget(self, model, mplw)
 
         # Layout is two columns of widgets, right is data output and console,
         # left is inputwidget and mpl_widget
         self.hsplitter = hsplitter = QSplitter(Qt.Horizontal, self)
         hsplitter.setChildrenCollapsible(False)
-        layout = QHBoxLayout(self)
-        layout.addWidget(hsplitter)
+        digitizer_layout = QHBoxLayout(self)
+        digitizer_layout.addWidget(hsplitter)
 
         # Left side layout is vertical widgets, divided by a splitter
         self.mplw_splitter = mplw_splitter = QSplitter(Qt.Vertical, self)
@@ -115,42 +109,6 @@ class Digitizer(QWidget):
         # Error message
         model.value_error.connect(self.show_text)
 
-    def array2html(self, array, decimal_chr, num_fmt):
-        """Make a HTML table with two columns from 2D numpy array
-        """
-        def row2html(columns):
-            r = '<tr>'
-            for i in columns:
-                r += f'<td>{i:{num_fmt}}</td>'
-            return r + '</tr>'
-        header = (
-          '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">'
-          '<html><head>'
-          '<meta http-equiv="content-type" content="text/html; charset=utf-8"/>'
-          '<title></title>'
-          '<meta name="generator" content="Plot Workbench Export"/>'
-          '</head><body><table>'
-          )
-        
-        footer = '</table></body></html>'
-        s = ""
-        for row in array.tolist():
-            s += row2html(row)
-        if decimal_chr != ".":
-            s = s.replace(".", decimal_chr)
-        return header + s + footer
-
-    def array2csv(self, array, decimal_chr, num_fmt):
-        """Output np.array as CSV text.
-        """
-        #datastring = np.array2string(pts_i, separator="\t")
-        strio = io.StringIO()
-        np.savetxt(strio, array, delimiter=" ", fmt=f"%{num_fmt}")
-        s = strio.getvalue()
-        strio.close()
-        if decimal_chr != ".":
-            s = s.replace(".", decimal_chr)
-        return s
 
     @logExceptionSlot(str)
     def on_dlg_export_csv(self, filename):
@@ -166,7 +124,7 @@ class Digitizer(QWidget):
         logger.info(f"Storing CSV output to file: {filename}\n"
                     f"Number format string used is: {num_fmt}"
                     f'==> Decimal point character used is: "{decimal_chr}" <==')
-        pts_i_csv = self.array2csv(pts_i, decimal_chr, num_fmt)
+        pts_i_csv = self._array2csv(pts_i, decimal_chr, num_fmt)
         try:
             with open(filename, "x") as f:
                 f.write(pts_i_csv)
@@ -194,14 +152,15 @@ class Digitizer(QWidget):
         logger.info(f"Putting CSV and HTML table data into clipboard!"
                     f"Number format string used is: {num_fmt}"
                     f'==> Decimal point character used is: "{decimal_chr}" <==')
-        pts_i_csv = self.array2csv(pts_i, decimal_chr, num_fmt)
-        pts_i_html = self.array2html(pts_i, decimal_chr, num_fmt)
+        pts_i_csv = self._array2csv(pts_i, decimal_chr, num_fmt)
+        pts_i_html = self._array2html(pts_i, decimal_chr, num_fmt)
         qmd = QMimeData()
         qmd.setData("text/csv", bytes(pts_i_csv, encoding="utf-8"))
         qmd.setData("text/plain", bytes(pts_i_csv, encoding="utf-8"))
         qmd.setHtml(pts_i_html)
         self.clipboard.setMimeData(qmd)
 
+    @logExceptionSlot(Exception)
     def show_error(self, e: Exception):
         self.messagebox.setIcon(QMessageBox.Critical)
         self.messagebox.setText("<b>Error!</b>")
@@ -221,6 +180,45 @@ class Digitizer(QWidget):
         self.messagebox.setInformativeText(text)
         self.messagebox.setWindowTitle("Plot Workbench Notification")
         self.messagebox.exec_()
+
+    @staticmethod
+    def _array2html(array, decimal_chr, num_fmt):
+        """Make a HTML table with two columns from 2D numpy array
+        """
+        def row2html(columns):
+            r = '<tr>'
+            for i in columns:
+                r += f'<td>{i:{num_fmt}}</td>'
+            return r + '</tr>'
+        header = (
+          '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">'
+          '<html><head>'
+          '<meta http-equiv="content-type" content="text/html; charset=utf-8"/>'
+          '<title></title>'
+          '<meta name="generator" content="Plot Workbench Export"/>'
+          '</head><body><table>'
+          )
+        
+        footer = '</table></body></html>'
+        s = ""
+        for row in array.tolist():
+            s += row2html(row)
+        if decimal_chr != ".":
+            s = s.replace(".", decimal_chr)
+        return header + s + footer
+
+    @staticmethod
+    def _array2csv(array, decimal_chr, num_fmt):
+        """Output np.array as CSV text.
+        """
+        #datastring = np.array2string(pts_i, separator="\t")
+        strio = io.StringIO()
+        np.savetxt(strio, array, delimiter=" ", fmt=f"%{num_fmt}")
+        s = strio.getvalue()
+        strio.close()
+        if decimal_chr != ".":
+            s = s.replace(".", decimal_chr)
+        return s
 
     @staticmethod
     def _set_v_stretch(widget, value: int):
