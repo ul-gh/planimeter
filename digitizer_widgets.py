@@ -28,10 +28,8 @@ class DataCoordProps(QGroupBox):
         self.digitizer = digitizer
         self.model = model
         self.mplw = mplw
-
-        layout = QGridLayout(self)
-#        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
-
+        
+        ########## Widgets setup
         self.cursor_xy_label = QLabel("Cursor X and Y data:")
         self.cursor_x_display = SciLineEdit()
         self.cursor_y_display = SciLineEdit()
@@ -45,17 +43,9 @@ class DataCoordProps(QGroupBox):
         self.y_range_label = QLabel("Canvas Y Data Extent:")
         self.y_min_edit = SciLineEdit()
         self.y_max_edit = SciLineEdit()
-
-        layout.addWidget(self.cursor_xy_label, 0, 0)
-        layout.addWidget(self.cursor_x_display, 0, 1)
-        layout.addWidget(self.cursor_y_display, 0, 2)
-        layout.addWidget(self.x_range_label, 1, 0)
-        layout.addWidget(self.x_min_edit, 1, 1)
-        layout.addWidget(self.x_max_edit, 1, 2)
-        layout.addWidget(self.y_range_label, 2, 0)
-        layout.addWidget(self.y_min_edit, 2, 1)
-        layout.addWidget(self.y_max_edit, 2, 2)
-
+        # Layout setup
+        self._setup_layout()
+        
         ########## Initialise view from model
         self.update_model_view()
         self.update_mplw_view(mplw.MODE_DEFAULT)
@@ -80,13 +70,11 @@ class DataCoordProps(QGroupBox):
         self.y_min_edit.setValue(y_min)
         self.y_max_edit.setValue(y_max)
 
-
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
         #x_min, x_max = self.mplw.mpl_ax.get_xbound()
         #y_min, y_max = self.mplw.mpl_ax.get_ybound()
         pass
-
 
     @logExceptionSlot()
     def _set_model_px_bounds(self, _): # Signal value not needed
@@ -100,6 +88,19 @@ class DataCoordProps(QGroupBox):
             self.mplw.mpl_ax.set_ybound(y_min_max)
             self.mplw.canvas_qt.draw_idle()
 
+    def _set_layout(self):
+        layout = QGridLayout(self)
+        # self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        layout.addWidget(self.cursor_xy_label, 0, 0)
+        layout.addWidget(self.cursor_x_display, 0, 1)
+        layout.addWidget(self.cursor_y_display, 0, 2)
+        layout.addWidget(self.x_range_label, 1, 0)
+        layout.addWidget(self.x_min_edit, 1, 1)
+        layout.addWidget(self.x_max_edit, 1, 2)
+        layout.addWidget(self.y_range_label, 2, 0)
+        layout.addWidget(self.y_min_edit, 2, 1)
+        layout.addWidget(self.y_max_edit, 2, 2)
+
 
 class ExportSettingsBox(QGroupBox):
     def __init__(self, digitizer, model, mplw):
@@ -108,11 +109,9 @@ class ExportSettingsBox(QGroupBox):
         self.model = model
         self.mplw = mplw
 
-        layout = QHBoxLayout(self)
-#        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        ######### Setup widgets
         # Export Data button
         self.btn_export = StyledButton("Export\nData", self)
-
         self.x_start_export_edit = SciLineEdit(
                 self.model.x_start_export,
                 "X Axis Start Value",
@@ -125,18 +124,14 @@ class ExportSettingsBox(QGroupBox):
                 )
         self.btn_lin_export = QRadioButton("Lin")
         self.btn_log_export = QRadioButton("Log")
-        layout.addWidget(self.x_start_export_edit)
-        layout.addWidget(self.x_end_export_edit)
-        layout.addWidget(self.btn_lin_export)
-        layout.addWidget(self.btn_log_export)
-        layout.addWidget(self.btn_export)
-
+        # Setup layout
+        self._set_layout()
+        
         ########## Initialise view from model
         self.update_model_view()
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
-        logger.debug("Not yet implemented")
 
         ########## Connect foreign signals
         model.export_settings_changed.connect(self.update_model_view)
@@ -150,7 +145,16 @@ class ExportSettingsBox(QGroupBox):
 
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
-        logger.debug("Not yet implemented")
+        logger.debug("ExportSettings.update_mplw_view not implemented")
+    
+    def _set_layout(self):
+        layout = QHBoxLayout(self)
+        # self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        layout.addWidget(self.x_start_export_edit)
+        layout.addWidget(self.x_end_export_edit)
+        layout.addWidget(self.btn_lin_export)
+        layout.addWidget(self.btn_log_export)
+        layout.addWidget(self.btn_export)
 
 
 class TraceConfTable(QTableWidget):
@@ -204,13 +208,13 @@ class TraceConfTable(QTableWidget):
 
         ########## Connect foreign signals
         # Update when trace config changes, e.g. if traces are added or renamed
-        model.tr_conf_changed.connect(self.update_model_view)
+        model.tr_input_data_changed.connect(self.update_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.mode_sw.connect(self.update_mplw_view)
 
     @logExceptionSlot()
     def update_model_view(self):
-        logger.debug("Not yet implemented")
+        logger.debug("TraceConfTable.update_model_view not implemented")
 
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
@@ -263,57 +267,34 @@ class AxConfWidget(QWidget):
         ######### Qt widget setup
         #### Group box for X Coordinate picker and input boxes
         self.group_x = QGroupBox("Enter X Axis Start and End Values")
-        group_x_layout = QHBoxLayout(self.group_x)
-        # Group X contents
         self.btn_pick_x = StyledButton("Pick Points", self)
         self.xstart_edit = SciLineEdit(
                 model.x_ax.pts_data[0],
                 "X Axis Start Value",
-                model.num_fmt
-                )
+                model.num_fmt)
         self.xend_edit = SciLineEdit(
                 model.x_ax.pts_data[1],
                 "X Axis End Value",
-                model.num_fmt
-                )
+                model.num_fmt)
         self.btn_lin_x = QRadioButton("Lin")
         self.btn_log_x = QRadioButton("Log")
-        group_x_layout.addWidget(self.xstart_edit)
-        group_x_layout.addWidget(self.xend_edit)
-        group_x_layout.addWidget(self.btn_lin_x)
-        group_x_layout.addWidget(self.btn_log_x)
-        group_x_layout.addWidget(self.btn_pick_x)        
         #### Group box for Y Coordinate picker and input boxes
         self.group_y = QGroupBox("Enter Y Axis Start and End Values")
-        group_y_layout = QHBoxLayout(self.group_y)
-        # Group Y contents
         self.btn_pick_y = StyledButton("Pick Points", self)
         self.ystart_edit = SciLineEdit(
                 model.y_ax.pts_data[0],
                 "Y Axis Start Value",
-                model.num_fmt
-                )
+                model.num_fmt)
         self.yend_edit = SciLineEdit(
                 model.y_ax.pts_data[1],
                 "Y Axis End Value",
-                model.num_fmt
-                )
+                model.num_fmt)
         self.btn_lin_y = QRadioButton("Lin")
         self.btn_log_y = QRadioButton("Log")
-        group_y_layout.addWidget(self.ystart_edit)
-        group_y_layout.addWidget(self.yend_edit)
-        group_y_layout.addWidget(self.btn_lin_y)
-        group_y_layout.addWidget(self.btn_log_y)
-        group_y_layout.addWidget(self.btn_pick_y)
-
         # Store plot config button
         self.btn_store_config = QCheckBox("Store Config")
-
-        # This is all input boxes plus label
-        axconfw_layout = QHBoxLayout(self)
-        axconfw_layout.addWidget(self.group_x)
-        axconfw_layout.addWidget(self.group_y)
-        axconfw_layout.addWidget(self.btn_store_config)
+        # Setup Layout
+        self._set_layout()
 
         ########## Initialise view from model
         self.update_model_view()
@@ -333,7 +314,7 @@ class AxConfWidget(QWidget):
 
         ########## Connect foreign signals
         # Update when axes config changes
-        model.ax_conf_changed.connect(self.update_model_view)
+        model.ax_input_data_changed.connect(self.update_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.mode_sw.connect(self.update_mplw_view)
 
@@ -376,8 +357,29 @@ class AxConfWidget(QWidget):
         style = "QLineEdit { background-color: Palegreen; }" if state else ""
         self.group_y.setStyleSheet(style)
 
-    
-########## Custom Widgets Used Above ##########
+    def _set_layout(self):
+        # Group X layout
+        group_x_layout = QHBoxLayout(self.group_x)
+        group_x_layout.addWidget(self.xstart_edit)
+        group_x_layout.addWidget(self.xend_edit)
+        group_x_layout.addWidget(self.btn_lin_x)
+        group_x_layout.addWidget(self.btn_log_x)
+        group_x_layout.addWidget(self.btn_pick_x)        
+        # Group Y layout
+        group_y_layout = QHBoxLayout(self.group_y)
+        group_y_layout.addWidget(self.ystart_edit)
+        group_y_layout.addWidget(self.yend_edit)
+        group_y_layout.addWidget(self.btn_lin_y)
+        group_y_layout.addWidget(self.btn_log_y)
+        group_y_layout.addWidget(self.btn_pick_y)
+        # This is all input boxes plus label
+        axconfw_layout = QHBoxLayout(self)
+        axconfw_layout.addWidget(self.group_x)
+        axconfw_layout.addWidget(self.group_y)
+        axconfw_layout.addWidget(self.btn_store_config)
+
+
+########## Custom Widgets Used Above
 class StyledButton(QPushButton):
     """This checkable button has a minimum size set to the initial
     text contents requirements and can be used as a state indicator by

@@ -32,17 +32,13 @@ from upylib.pyqt_debug import logExceptionSlot
 class Digitizer(QWidget):
     """PyQt5 widget for GUI interactive plot digitizing.
 
-    This is the controller instance with direct association to the
-    interactive data model, a matplotlib based view component providing
-    plot and graphic displa/y with mouse interaction,
-    a text and button input widget for setup and control and some
-    auxiliary methods e.g. system clipboard access and helper functions.
-
-    The matplotlib widget has internal state (MODE) and direct access
-    to the data model which leaves only part of the controller functions
-    to this module, mainly connecting the public Qt signals and slots.
+    This is:
+        * A matplotlib based view component providing
+          plot and graphic displa/y with mouse interaction
+        * Various ext and button input widgets for setting model properties
+        * Clipboard access and file import/export functions
     
-    2019-07-29 Ulrich Lukas
+    2019-09-17 Ulrich Lukas
     """
     def __init__(self, mainw, conf):
         super().__init__(mainw)
@@ -55,11 +51,11 @@ class Digitizer(QWidget):
 
         # Plot interactive data model
         self.model = model = DataModel(self, conf)
+        # System clipboard access
+        self.clipboard = QApplication.instance().clipboard()
         # General text or warning message. This is accessed by some
         # sub-widgets so the instance must be created early
         self.messagebox = QMessageBox(self)
-        # System clipboard access
-        self.clipboard = QApplication.instance().clipboard()
         # Matplotlib widget
         self.mplw = mplw = MplWidget(self, model)
         # Data Coordinate Display and Edit Box
@@ -73,45 +69,16 @@ class Digitizer(QWidget):
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
+        # Setup layout
+        self._set_layout()
 
-        # Layout is two columns of widgets, right is data output and console,
-        # left is inputwidget and mpl_widget
-        self.hsplitter = hsplitter = QSplitter(Qt.Horizontal, self)
-        hsplitter.setChildrenCollapsible(False)
-        digitizer_layout = QHBoxLayout(self)
-        digitizer_layout.addWidget(hsplitter)
-
-        # Left side layout is vertical widgets, divided by a splitter
-        self.mplw_splitter = mplw_splitter = QSplitter(Qt.Vertical, self)
-        mplw_splitter.setChildrenCollapsible(False)
-        self._set_v_stretch(self.axconfw, 0)
-        self._set_v_stretch(self.mplw, 1)
-        mplw_splitter.addWidget(self.axconfw)
-        mplw_splitter.addWidget(self.mplw)
-
-        # Right side layout just the same
-        self.io_splitter = io_splitter = QSplitter(Qt.Vertical, self)
-        io_splitter.setChildrenCollapsible(False)
-        self._set_v_stretch(self.data_coord_props, 0)
-        self._set_v_stretch(self.export_settings, 0)
-        self._set_v_stretch(self.tr_conf_table, 1)
-        self._set_v_stretch(self.btn_console, 0)
-        io_splitter.addWidget(self.data_coord_props)
-        io_splitter.addWidget(self.export_settings)
-        io_splitter.addWidget(self.tr_conf_table)
-        io_splitter.addWidget(self.btn_console)
-
-        # All combined
-        hsplitter.addWidget(self.mplw_splitter)
-        io_splitter.setChildrenCollapsible(False)
-        hsplitter.addWidget(io_splitter)
-
-        # Error message
+        ########## Connect foreign signals
         model.value_error.connect(self.show_text)
 
 
+    # This is connected to from the main window toolbar!
     @logExceptionSlot(str)
-    def on_dlg_export_csv(self, filename):
+    def export_csv(self, filename):
         """Export CSV textstring to file
         """
         trace = self.model.traces[self.mplw.curr_trace_no]
@@ -181,6 +148,43 @@ class Digitizer(QWidget):
         self.messagebox.setWindowTitle("Plot Workbench Notification")
         self.messagebox.exec_()
 
+    # Layout is two columns of widgets, arranged by movable splitter widgets
+    def _set_layout(self):
+        # Resizing policy arranges the widgets with sane preset positions
+        self._set_v_stretch(self.mplw, 1)
+        self._set_v_stretch(self.data_coord_props, 0)
+        self._set_v_stretch(self.export_settings, 0)
+        self._set_v_stretch(self.tr_conf_table, 1)
+        self._set_v_stretch(self.axconfw, 0)
+        self._set_v_stretch(self.btn_console, 0)
+        # Left side layout is vertical widgets, divided by a splitter
+        mplw_splitter = QSplitter(Qt.Vertical, self)
+        mplw_splitter.setChildrenCollapsible(False)
+        mplw_splitter.addWidget(self.axconfw)
+        mplw_splitter.addWidget(self.mplw)
+        # Right side layout just the same
+        io_splitter = QSplitter(Qt.Vertical, self)
+        io_splitter.setChildrenCollapsible(False)
+        io_splitter.addWidget(self.data_coord_props)
+        io_splitter.addWidget(self.export_settings)
+        io_splitter.addWidget(self.tr_conf_table)
+        io_splitter.addWidget(self.btn_console)
+        # Horizontal splitter layout is left and right side combined
+        hsplitter = QSplitter(Qt.Horizontal, self)
+        hsplitter.setChildrenCollapsible(False)
+        hsplitter.addWidget(mplw_splitter)
+        hsplitter.addWidget(io_splitter)
+        # All combined
+        digitizer_layout = QHBoxLayout(self)
+        digitizer_layout.addWidget(hsplitter)
+
+    @staticmethod
+    def _set_v_stretch(widget, value: int):
+        # Set widget size policy stretch factor to value
+        sp = widget.sizePolicy()
+        sp.setVerticalStretch(value)
+        widget.setSizePolicy(sp)
+
     @staticmethod
     def _array2html(array, decimal_chr, num_fmt):
         """Make a HTML table with two columns from 2D numpy array
@@ -219,10 +223,3 @@ class Digitizer(QWidget):
         if decimal_chr != ".":
             s = s.replace(".", decimal_chr)
         return s
-
-    @staticmethod
-    def _set_v_stretch(widget, value: int):
-        # Set widget size policy stretch factor to value
-        sp = widget.sizePolicy()
-        sp.setVerticalStretch(value)
-        widget.setSizePolicy(sp)

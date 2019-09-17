@@ -63,48 +63,6 @@ class RuntimeConfig():
             logger.error("Error saving config file: ", e)
 
 
-class MainToolbar(NavigationToolbar2QT):
-    def __init__(self, canvas, parent, coordinates=True):
-        super().__init__(canvas, parent, coordinates)
-        for act in self.actions():
-            # We want to insert our buttons before the external matplotlib
-            # API buttons where the "Home" is the leftmost
-            if act.text() == "Home":
-                api_first_action = act
-            # The matplotlib save button only saves a screenshot thus it should
-            # be appropriately renamed
-            if act.text() == "Save":
-                act.setText("Screenshot")
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        icon_open = QIcon.fromTheme(
-            "document-open",
-            self.style().standardIcon(QStyle.SP_DialogOpenButton))
-        icon_export = QIcon.fromTheme(
-            "document-save",
-            self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        icon_send = QIcon.fromTheme(
-            "document-send",
-            self.style().standardIcon(QStyle.SP_ComputerIcon))
-        self.act_put_clipboard = QAction(
-            icon_send, "Put to Clipboard", self, iconText="Put Into\nClipboard")
-        self.act_export_xlsx = QAction(
-            icon_export, "Export data as XLSX", self, iconText="Export XLSX")
-        self.act_export_csv = QAction(
-            icon_export, "Export data as CSV", self, iconText="Export CSV")
-        self.act_open = QAction(
-            icon_open, "Open an image file", self, iconText="Open File")
-        self.act_load_clipboard = QAction(
-            icon_open, "Load Image from Clipboard", self, iconText="From Clipboard")
-        # Separator before first external API buttons
-        sep = self.insertSeparator(api_first_action)
-        # Inserting new buttons
-        self.insertActions(
-                sep,
-                [self.act_load_clipboard, self.act_open, self.act_export_csv,
-                     self.act_export_xlsx, self.act_put_clipboard],
-                )
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -123,18 +81,19 @@ class MainWindow(QMainWindow):
         ########## Central Widget
         self.cw = Digitizer(self, conf)
         self.setCentralWidget(self.cw)
-
         ########## Main window toolbar
         self.main_tb = MainToolbar(self.cw.mplw.canvas_qt, self)
         self.addToolBar(self.main_tb)
-
         ########## Custom Dialogs
         self.dlg_open_image = QFileDialog(
-            self, "Open Source Image", self.wdir, "Images (*.png *.jpg *.jpeg)")
+                self,
+                "Open Source Image",
+                self.wdir,
+                "Images (*.png *.jpg *.jpeg)")
         self.dlg_export_csv = QFileDialog(
-            self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
+                self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
         self.dlg_export_xlsx = QFileDialog(
-            self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
+                self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
         
         ########## Embedded IPython Kernel and Jupyter Console Launcher
         self.ipyconsole = EmbeddedIPythonKernel(self)
@@ -151,12 +110,12 @@ class MainWindow(QMainWindow):
         
         # Embedded Jupyter Console Button signal
         self.cw.btn_console.clicked.connect(
-            self.ipyconsole.launch_jupyter_console_process)
+                self.ipyconsole.launch_jupyter_console_process)
 
         # Dialog box signals
         self.dlg_open_image.fileSelected.connect(self.cw.mplw.load_image)
         self.dlg_open_image.directoryEntered.connect(self.set_wdir)
-        self.dlg_export_csv.fileSelected.connect(self.cw.on_dlg_export_csv)
+        self.dlg_export_csv.fileSelected.connect(self.cw.export_csv)
 
     def closeEvent(self, event):
         """closeEvent() inherited from QMainWindow, reimplemented here.
@@ -183,6 +142,62 @@ class MainWindow(QMainWindow):
     def set_wdir(self, abs_path):
         """Set working directory to last opened file directory"""
         self.wdir = abs_path
+
+
+class MainToolbar(NavigationToolbar2QT):
+    def __init__(self, canvas, parent, coordinates=True):
+        super().__init__(canvas, parent, coordinates)
+        for act in self.actions():
+            # We want to insert our buttons before the external matplotlib
+            # API buttons where the "Home" is the leftmost
+            if act.text() == "Home":
+                api_first_action = act
+            # The matplotlib save button only saves a screenshot thus it should
+            # be appropriately renamed
+            if act.text() == "Save":
+                act.setText("Screenshot")
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        icon_open = QIcon.fromTheme(
+                "document-open",
+                self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        icon_export = QIcon.fromTheme(
+                "document-save",
+                self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        icon_send = QIcon.fromTheme(
+                "document-send",
+                self.style().standardIcon(QStyle.SP_ComputerIcon))
+        self.act_put_clipboard = QAction(
+                icon_send,
+                "Put to Clipboard",
+                self,
+                iconText="Put Into\nClipboard")
+        self.act_export_xlsx = QAction(
+                icon_export,
+                "Export data as XLSX",
+                self,
+                iconText="Export XLSX")
+        self.act_export_csv = QAction(
+                icon_export,
+                "Export data as CSV",
+                self,
+                iconText="Export CSV")
+        self.act_open = QAction(
+                icon_open,
+                "Open an image file",
+                self,
+                iconText="Open File")
+        self.act_load_clipboard = QAction(
+                icon_open,
+                "Load Image from Clipboard",
+                self,
+                iconText="From Clipboard")
+        # Separator before first external API buttons
+        sep = self.insertSeparator(api_first_action)
+        # Inserting new buttons
+        self.insertActions(
+                sep,
+                [self.act_load_clipboard, self.act_open, self.act_export_csv,
+                 self.act_export_xlsx, self.act_put_clipboard])
 
 
 if __name__ == "__main__":

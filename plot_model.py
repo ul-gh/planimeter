@@ -20,6 +20,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 import matplotlib.pyplot as plt
 import upylib.u_plot_format as u_format
 
+from upylib.pyqt_debug import logExceptionSlot
 
 class DataModel(QObject):
     """DataModel
@@ -55,17 +56,16 @@ class DataModel(QObject):
     # Since the input data is normally set by the view itself, a redraw of raw
     # input data is not performed when this signal is emitted.
     output_data_changed = pyqtSignal([], [int])
-    # Mainly used for configuring export options
-    export_settings_changed = pyqtSignal()
     # Emitted from the traces objects and triggers a re-display of the raw
-    # (pixel-space) input points. This can be indexed with a trace number.
-    tr_pts_changed = pyqtSignal([], [int])
+    # (pixel-space) input points. Can address a single trace by number index.
+    # When a trace is added or deleted, the signal is emitted without index.
+    tr_input_data_changed = pyqtSignal([], [int])
     # Emitted from the axes objects, updates view outputs
-    ax_conf_changed = pyqtSignal()
-    # This emits a model trace index when traces are added, deleted or renamed
-    tr_conf_changed = pyqtSignal(int)
+    ax_input_data_changed = pyqtSignal()
     # Triggers updates of coordinate settings box
     coordinate_system_changed = pyqtSignal()
+    # Mainly used for configuring export options
+    export_settings_changed = pyqtSignal()
     # GUI error feedback when invalid data was entered
     value_error = pyqtSignal(str)
     # GUI feedback when export range settings are outside of points range
@@ -138,9 +138,29 @@ class DataModel(QObject):
 
         ########## Initialise model outputs if axes are configured
         if self.axes_setup_is_complete():
-            self.calculate_coordinate_transformation()
+            self._calc_coordinate_transformation()
+            
+        ########## Connect axes input changes to own calculation
+        self.ax_input_data_changed.connect(self._calc_coordinate_transformation)
+        
+        ########## Connect trace input changes to own outputs calculation
+        self.tr_input_data_changed.connect(self._process_tr_input_data)
+        self.tr_input_data_changed[int].connect(self._process_tr_input_data)
 
+    ########## Global validity checks
+    def axes_setup_is_complete(self) -> bool:
+        """Returns True if both axes configuration is complete and valid
+        """
+        return self.x_ax.is_complete() and self.y_ax.is_complete()
 
+    def coordinate_transformation_defined(self) -> bool:
+        """Returns True if coordinate system transformation matrices for
+        both pixel-to-data direction and reverse direction are defined
+        """
+        return (self.data_to_px_mat is not None
+                and self.px_to_data_m is not None)
+
+    ########## Export related functions
     def wip_export(self, tr):
         # FIXME: Temporary solution
         grid = np.linspace(tr.pts[0,0], tr.pts[-1,0], 100)
@@ -191,8 +211,7 @@ class DataModel(QObject):
         ax3.text(0.05, 0.9, ax3_text, fontsize=15, transform=ax3.transAxes)
         self.fig.tight_layout()
 
-    ########## GUI scope and public methods
-    @pyqtSlot()
+    @logExceptionSlot()
     def export_traces(self):
         """Interpolate data from the given trace numbers using a common
         interpolation grid with n_interp X-axis points, spaced evenly
@@ -249,109 +268,30 @@ class DataModel(QObject):
             output_arr[row] = output_func(x_grid_export)
         self.output_arr = output_arr
 
-    @pyqtSlot(float)
+    @logExceptionSlot(float)
     def set_x_start_export(self, x_start: float):
         if isclose(self.x_end_export - x_start, 0.0, atol=self.atol):
             self.value_error.emit("X axis section must not be zero length")
             return
         self.autorange_export = False
         self.x_start_export = x_start
-        self.check_or_update_export_range()
+        self._check_or_update_export_range()
 
-    @pyqtSlot(float)
+    @logExceptionSlot(float)
     def set_x_end_export(self, x_end: float):
         if isclose(x_end - self.x_start_export, 0.0, atol=self.atol):
             self.value_error.emit("X axis section must not be zero length")
             return
         self.autorange_export = False
         self.x_end_export = x_end
-        self.check_or_update_export_range()
+        self._check_or_update_export_range()
 
-    @pyqtSlot(bool)
+    @logExceptionSlot(bool)
     def set_autorange_export(self, state=True):
         self.autorange_export = state
-        self.check_or_update_export_range()
+        self._check_or_update_export_range()
 
-    def check_or_update_export_range(self):
-        # Called from self.calculate_live_outputs.
-        # Set export range limits on the common X axis such that
-        # all traces can be exported by using interpolation, i.e. no
-        # extrapolation takes place.
-        # An exception is made for traces with less than two points
-        # selected, these are not taken into account.
-        ########## Calculate interpolation limits
-        try:
-            x_start_lin_limit = max(
-                    # max() takes a generator expression
-                    tr.pts_lin[0,0] for tr in self.traces
-                    if tr.export and tr.pts_lin.shape[0] > 1
-                    )
-            x_end_lin_limit = min(
-                    tr.pts_lin[-1,0] for tr in self.traces
-                    if tr.export and tr.pts_lin.shape[0] > 1
-                    )
-        except ValueError as e:
-            logger.info(f"Got error: {e.args[0]}. No trace marked for export?")
-            return
-        # Anti-log treatment for X axis. This is not to be confused with log
-        # scale export setting - these are independent.
-        if self.x_ax.log_scale:
-            x_start_export_limit = self.x_ax.log_base ** x_start_lin_limit
-            x_end_export_limit = self.x_ax.log_base ** x_end_lin_limit
-        else:
-            x_start_export_limit = x_start_lin_limit
-            x_end_export_limit = x_end_lin_limit
-
-        if self.autorange_export:
-            # Set class attribute
-            self.x_start_export = x_start_export_limit
-            self.x_end_export = x_end_export_limit
-            # Update dependent attributes
-            if self.fixed_n_pts_export:
-                if self.x_log_scale_export:
-                    self.update_n_pts_dec_export()
-                else:
-                    self.update_x_step_export()
-            else:
-                self.update_n_pts_export()
-        else:
-            # Range check only
-            if (    self.x_start_export < x_start_export_limit
-                    or self.x_end_export > x_end_export_limit
-                    ):
-                logger.warn("Export range is extrapolated!")
-                self.export_range_warning.emit()
-
-
-    def update_n_pts_export(self):
-        # Update total number of output points when export range is changed
-        if self.x_log_scale_export:
-            x_start_lin = np.log10(self.x_start_export)
-            x_end_lin = np.log10(self.x_end_export)
-            n_dec = x_end_lin - x_start_lin
-            N_tot = n_dec * self.n_pts_dec_export
-            self.n_pts_export = min(
-                    self.n_pts_export_max,
-                    N_tot
-                    )
-        else:
-            x_step = self.x_step_export
-            self.n_pts_export = min(
-                    self.n_pts_export_max,
-                    1 + int((self.x_end_export - self.x_start_export) / x_step)
-                    )
-
-    def update_n_pts_dec_export(self):
-        x_start_lin = np.log10(self.x_start_export)
-        x_end_lin = np.log10(self.x_end_export)
-        n_dec = x_end_lin - x_start_lin
-        self.n_pts_dec_export = self.n_pts_export / n_dec
-
-    def update_x_step_export(self):
-        self.x_step_export = (self.x_end_export - self.x_start_export
-                       ) / self.n_pts_export
-
-    @pyqtSlot(int)
+    @logExceptionSlot(int)
     def set_n_pts_export(self, n_pts: int = None):
         # Step size is now artibrary
         self.fixed_n_pts_export = True
@@ -366,13 +306,13 @@ class DataModel(QObject):
         # Calculation only possible when export range is defined
         if not isnan((self.x_start_export, self.x_end_export)).any():
             if self.x_log_scale_export:
-                self.update_n_pts_dec_export()
+                self._update_n_pts_dec_export()
             else:
-                self.update_x_step_export()
+                self._update_x_step_export()
         self.n_pts_export = n_pts
         self.export_settings_changed.emit()
 
-    @pyqtSlot(float)
+    @logExceptionSlot(float)
     def set_x_step_export(self, x_step: float):
         self.fixed_n_pts_export = False
         # If called, this assumes linear scale export is desired:
@@ -399,7 +339,7 @@ class DataModel(QObject):
                 )
         self.export_settings_changed.emit()
 
-    @pyqtSlot(float)
+    @logExceptionSlot(float)
     def set_n_pts_dec_export(self, n_pts_dec: float):
         # If called, this assumes log scale export is desired:
         self.x_log_scale_export = True
@@ -424,13 +364,8 @@ class DataModel(QObject):
         # Update total number of points
         self.n_pts_export = N_tot
         self.export_settings_changed.emit()
-
-
-    def axes_setup_is_complete(self) -> bool:
-        """Returns True if axes configuration is all complete and valid
-        """
-        return self.x_ax.is_complete() and self.y_ax.is_complete()
     
+    ########## Coordinate system specific functions
     def get_px_from_data_bounds(self, x_min_max, y_min_max):
         if not self.axes_setup_is_complete():
             self.value_error.emit("You must configure both axes first!")
@@ -472,43 +407,17 @@ class DataModel(QObject):
         # Transformation matrix applied to points as column vectors, plus offset
         return (self.data_to_px_mat @ trace.pts_lin_i.T).T + self.origin_px
 
-
-    def calculate_live_outputs(self, trace_no=None):
-        """Performs coordinate transformation, sorting, interpolation 
-        and linearisation of log axes on the data model.
-        """
-        # Transform points and calculate original values for logarithmic scale
-        # if needed. "None" really means none selected, i.e. update all traces.
-        traces = self.traces if trace_no is None else [self.traces[trace_no]]
-        for tr in traces:
-            if tr.pts_px.shape[0] == 0:
-                # If no points are set or if these have been deleted, reset
-                # model properties to initial values
-                tr.init_data()
-            else:
-                # These calls do the heavy work
-                tr._px_to_linear_data_coords(self._px_to_data_m, self.origin_px)
-                tr._sort_pts()
-                # Anyways:
-                tr._interpolate_view_data()
-                tr._handle_log_scale(self.x_ax, self.y_ax)
-        # What the name says..
-        self.check_or_update_export_range()
-        # Emit signals informing of updated trace data
-        if trace_no is None:
-            self.output_data_changed.emit()
-        else:
-            self.output_data_changed[int].emit(trace_no)
-
-    @pyqtSlot(bool)
+    ########## Persistent storage flag
+    @logExceptionSlot(bool)
     def set_store_config(self, state):
         """Sets flag to request axes configuration to be saved and restored
         when the application is closed
         """
         self.store_ax_conf = state
 
+
     ########## Model-specific implementation part
-    def calculate_coordinate_transformation(self) -> None:
+    def _calc_coordinate_transformation(self) -> None:
         """Calculates data axes origin point offset in pixel coordinates and
         the coordinate transformation matrix including axes scale.
 
@@ -518,6 +427,7 @@ class DataModel(QObject):
         For backplotting the result, inverse transformation matrix is also
         calculated.
         """
+        logger.debug(f"DataModel._calc_coordinate_transformation called")
         # This can be called before all axes points have been set
         if not self.axes_setup_is_complete():
             return
@@ -598,13 +508,119 @@ class DataModel(QObject):
 
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
-        self.calculate_live_outputs() # Emits the "output_data_changed" signal.
+        self._process_tr_input_data() # Emits the "output_data_changed" signal.
         self.coordinate_system_changed.emit()
 
-    def coordinate_transformation_defined(self):
-        return (self.data_to_px_mat is not None
-                and self.px_to_data_m is not None)
+    @logExceptionSlot()
+    @logExceptionSlot(int)
+    def _process_tr_input_data(self, trace_no=None):
+        """Performs coordinate transformation, sorting, interpolation 
+        and linearisation of log axes on the data model.
+        """
+        if not self.coordinate_transformation_defined():
+            text = "Tried processing trace points but transform not defined!"
+            logger.warn(text)
+            return
+        # Transform points and calculate original values for logarithmic scale
+        # if needed. "None" really means none selected, i.e. update all traces.
+        traces = self.traces if trace_no is None else [self.traces[trace_no]]
+        for tr in traces:
+            if tr.pts_px.shape[0] == 0:
+                # If no points are set or if these have been deleted, reset
+                # model properties to initial values
+                tr.init_data()
+            else:
+                # These calls do the heavy work
+                tr._px_to_linear_data_coords(self._px_to_data_m, self.origin_px)
+                tr._sort_pts()
+                # Anyways:
+                tr._interpolate_view_data()
+                tr._handle_log_scale(self.x_ax, self.y_ax)
+        # What the name says..
+        self._check_or_update_export_range()
+        # Emit signals informing of updated trace data
+        if trace_no is None:
+            self.output_data_changed.emit()
+        else:
+            self.output_data_changed[int].emit(trace_no)
 
+
+    ##### Export specific private functions
+    # Called from self._process_tr_input_data.
+    # Set export range limits on the common X axis such that all traces can
+    # be exported by using interpolation, i.e. no extrapolation takes place.
+    # An exception is made for traces with less than two points selected,
+    # these are not taken into account.
+    def _check_or_update_export_range(self):
+        # Calculate interpolation limits
+        tr_start_lin = [tr.pts_lin[0,0] for tr in self.traces
+                        if tr.export and tr.pts_lin.shape[0] > 1]
+        tr_end_lin = [tr.pts_lin[-1,0] for tr in self.traces
+                      if tr.export and tr.pts_lin.shape[0] > 1]
+        if not tr_start_lin or not tr_end_lin:
+            logger.debug(f"No export range. No traces marked for export?")
+            return
+        x_start_lin_limit = max(tr_start_lin)
+        x_end_lin_limit = min(tr_end_lin)
+        # Anti-log treatment for X axis. This is not to be confused with log
+        # scale export setting - these are independent.
+        if self.x_ax.log_scale:
+            x_start_export_limit = self.x_ax.log_base ** x_start_lin_limit
+            x_end_export_limit = self.x_ax.log_base ** x_end_lin_limit
+        else:
+            x_start_export_limit = x_start_lin_limit
+            x_end_export_limit = x_end_lin_limit
+
+        if self.autorange_export:
+            # Set class attribute
+            self.x_start_export = x_start_export_limit
+            self.x_end_export = x_end_export_limit
+            # Update dependent attributes
+            if self.fixed_n_pts_export:
+                if self.x_log_scale_export:
+                    self._update_n_pts_dec_export()
+                else:
+                    self._update_x_step_export()
+            else:
+                self._update_n_pts_export()
+        else:
+            # Range check only
+            if (    self.x_start_export < x_start_export_limit
+                    or self.x_end_export > x_end_export_limit
+                    ):
+                logger.warn("Export range is extrapolated!")
+                self.export_range_warning.emit()
+
+    # Update total number of output points when export range is changed
+    def _update_n_pts_export(self):
+        if self.x_log_scale_export:
+            x_start_lin = np.log10(self.x_start_export)
+            x_end_lin = np.log10(self.x_end_export)
+            n_dec = x_end_lin - x_start_lin
+            N_tot = n_dec * self.n_pts_dec_export
+            self.n_pts_export = min(
+                    self.n_pts_export_max,
+                    N_tot
+                    )
+        else:
+            x_step = self.x_step_export
+            self.n_pts_export = min(
+                    self.n_pts_export_max,
+                    1 + int((self.x_end_export - self.x_start_export) / x_step)
+                    )
+
+    def _update_n_pts_dec_export(self):
+        x_start_lin = np.log10(self.x_start_export)
+        x_end_lin = np.log10(self.x_end_export)
+        n_dec = x_end_lin - x_start_lin
+        self.n_pts_dec_export = self.n_pts_export / n_dec
+
+    def _update_x_step_export(self):
+        self.x_step_export = (self.x_end_export - self.x_start_export
+                       ) / self.n_pts_export
+
+
+    ########## Helper functions
     @staticmethod
     def _lines_intersection(line1_pts, line2_pts):
         """Calculates intersection of two lines defined by two points each.
@@ -697,16 +713,20 @@ class Trace(QObject):
         """
         self.init_data()
         # Trigger a full update of the model and view of inputs and outputs
-        self.model.calculate_live_outputs(self.trace_no)
-        self.model.tr_pts_changed[int].emit(self.trace_no)
+        self.model._process_tr_input_data(self.trace_no)
+        self.model.tr_input_data_changed[int].emit(self.trace_no)
 
     def add_pt_px(self, xydata) -> int:
+        logger.debug(f"Call Trace.add_pt_px with data: {xydata}")
         # Returns index of newly added point, here because points are always
         # appended and later sorted, index is length of self.pts_px - 1
         self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
         # Trigger a full update of the model and view of inputs and outputs
-        self.model.calculate_live_outputs(self.trace_no)
-        self.model.tr_pts_changed[int].emit(self.trace_no)
+        if not self.model.axes_setup_is_complete():
+            logger.warning("No live updates: Coordinate system not defined.")
+            return
+        self.model._process_tr_input_data(self.trace_no)
+        self.model.tr_input_data_changed[int].emit(self.trace_no)
         return self.pts_px.shape[0]
 
     def update_pt_px(self, xydata, index: int):
@@ -714,13 +734,14 @@ class Trace(QObject):
         # be redrawn
         self.pts_px[index] = xydata
         # Update of the model outputs plus update of outputs view
-        self.model.calculate_live_outputs(self.trace_no)
+        self.model._process_tr_input_data(self.trace_no)
 
     def delete_pt_px(self, index: int):
+        logger.debug(f"Call Trace.delete_pt_px with index: {index}")
         self.pts_px = np.delete(self.pts_px, index, axis=0)
         # Trigger a full update of the model and view of inputs and outputs
-        self.model.calculate_live_outputs(self.trace_no)
-        self.model.tr_pts_changed[int].emit(self.trace_no)
+        self.model._process_tr_input_data(self.trace_no)
+        self.model.tr_input_data_changed[int].emit(self.trace_no)
 
     ########## Model-specific implementation part
     def _px_to_linear_data_coords(self, transform_matrix, origin_px) -> None:
@@ -850,8 +871,34 @@ class Axis(QObject):
         ########## Associated view object
         self.pts_view_obj = None # Optional: pyplot.Line2D
  
+    # Check if this axis setup is complete and valid
+    def is_complete(self) -> bool:
+        pts_px = self.pts_px
+        if (    isnan(pts_px).any()
+                or isnan(self.pts_data).any()
+                or  self.log_scale
+                    and isclose(self.pts_data, 0.0, atol=self.atol).any()
+                ):
+            #logger.debug("ax.is_complete returns: False")
+            return False
+        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
+        if isclose(pts_distance, 0.0, atol=self.atol):
+            #logger.debug("ax.is_complete returns: False")
+            return False
+        #logger.debug("ax.is_complete returns: True")
+        return True
 
-    @pyqtSlot(float)
+    # Check if axis section has nonzero length
+    def valid_pts_px(self) -> bool:
+        pts_px = self.pts_px
+        if isnan(pts_px).any():
+            return False
+        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
+        if isclose(pts_distance, 0.0, atol=self.atol):
+            return False
+        return True
+
+    @logExceptionSlot(float)
     def set_ax_start(self, value):
         # Prevent recursive calls and unnecessary updates
         if isclose(self.pts_data[0], value, atol=self.atol):
@@ -864,11 +911,10 @@ class Axis(QObject):
                     "X axis values must be numerically different")
         else:
             self.pts_data[0] = value
-        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation() # Emits notify signals
+        self.model.ax_input_data_changed.emit()
 
-    @pyqtSlot(float)
+    @logExceptionSlot(float)
     def set_ax_end(self, value):
         # Prevent recursive calls and unnecessary updates
         if isclose(self.pts_data[1], value, atol=self.atol):
@@ -881,11 +927,10 @@ class Axis(QObject):
                     "X axis values must be numerically different")
         else:
             self.pts_data[1] = value
-        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation() # Emits notify signals
+        self.model.ax_input_data_changed.emit()
 
-    @pyqtSlot(bool)
+    @logExceptionSlot(bool)
     def set_log_scale(self, state=True):
         logger.debug(f"set_log_state called with state: {state}")
         # Prevent recursive or duplicate calls
@@ -898,9 +943,8 @@ class Axis(QObject):
                     "X axis values must not be zero for log axes")
             return
         self.log_scale = state
-        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation() # Emits notify signals
+        self.model.ax_input_data_changed.emit()
 
     def add_pt_px(self, xydata) -> int:
         """Add a point defining an axis section
@@ -937,11 +981,9 @@ class Axis(QObject):
         if isclose(pts_distance, 0.0, atol=self.atol):
             return index
         pts_px[index] = xydata
-        self.model.ax_conf_changed.emit()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation() # Emits notify signals
+        self.model.ax_input_data_changed.emit()
         return index
-
 
     def update_pt_px(self, xydata, index: int):
         """Update axis point in pixel coordinates 
@@ -954,45 +996,17 @@ class Axis(QObject):
             return
         self.pts_px[index] = xydata
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation() # Emits notify signals
+        self.model.ax_input_data_changed.emit()
 
     def delete_pt_px(self, index: int):
         """Delete axis point in pixel coordinates 
         """
         self.pts_px[index] = np.full(2, NaN)
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.calculate_coordinate_transformation() # Emits notify signals
+        self.model.ax_input_data_changed.emit()
 
-    def is_complete(self) -> bool:
-        # Check if this axis setup is complete and valid
-        pts_px = self.pts_px
-        if (    isnan(pts_px).any()
-                or isnan(self.pts_data).any()
-                or  self.log_scale
-                    and isclose(self.pts_data, 0.0, atol=self.atol).any()
-                ):
-            #logger.debug("ax.is_complete returns: False")
-            return False
-        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
-        if isclose(pts_distance, 0.0, atol=self.atol):
-            #logger.debug("ax.is_complete returns: False")
-            return False
-        #logger.debug("ax.is_complete returns: True")
-        return True
-    
-    def valid_pts_px(self) -> bool:
-        # Check if axis section is nonzero length
-        pts_px = self.pts_px
-        if isnan(pts_px).any():
-            return False
-        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
-        if isclose(pts_distance, 0.0, atol=self.atol):
-            return False
-        return True
-
+    # Returns axis configuration as a dictionary used for persistent storage.
     def get_state(self) -> dict:
-        # Returns the axis configuration attributes as a dictionary
-        # Used for persistent storage.
         state = vars(self).copy()
         # The view object belongs to the view component and cannot be restored
         # into a new context.

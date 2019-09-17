@@ -11,6 +11,8 @@ class APPLICATION():
     wdir = QDir.homePath()
     # Default window size
     window_size = (800, 600)
+    # Minimum plot widget height
+    min_plotwin_height = 100
 
     ### String format codes, see: https://fmt.dev/latest/syntax.html
     # Number string format code for DATA EXPORT

@@ -58,7 +58,12 @@ class MplWidget(QWidget):
         ########## Access to the data model
         self.model = model
         self.digitizer = digitizer
-        
+
+        ########## View-Model-Mapping
+        # Mapping of individual view objects (lines, points) to the associated
+        # data model components. Dict keys are pyplot.Line2D objects.
+        self.view_model_map = {}
+
         ########## Operation state
         # What happens when the plot canvas is clicked..
         self.op_mode = self.MODE_DEFAULT
@@ -74,38 +79,31 @@ class MplWidget(QWidget):
         # App configuration
         self.conf = digitizer.conf
 
-        ########## View-Model-Map
-        # Mapping of individual view objects (lines, points) to the
-        # associated data model components. Dict keys are pyplot.Line2D objects.
-        self.view_model_map = {}
-
-        ########## Qt widget setup
-        self.setMinimumHeight(100)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 6, 0)
-        # Message box popup used for various purposes, e.g. points deletion
-        self.messagebox = QMessageBox(self)
-
         ########## Matplotlib figure and axes setup
         self.fig = matplotlib.figure.Figure()
+
+        ########## Qt widget setup
+        self.setMinimumHeight(self.conf.app_conf.min_plotwin_height)
         # Matplotlib figure instance passed to FigureCanvas of matplotlib
         # Qt5Agg backend. This returns the matplotlib canvas as a Qt widget.
         self.canvas_qt = mpl_backend_qt.FigureCanvas(self.fig)
-        # Only one matplotlib AxesSubplot instance is used
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 6, 0)
+        layout.addWidget(self.canvas_qt)
+        
+        # One matplotlib AxesSubplot instance is used
         self.mpl_ax = self.fig.add_subplot(111, autoscale_on=False)
         self.mpl_ax.xaxis.set_visible(False)
         self.mpl_ax.yaxis.set_visible(False)
         # After removing axis visibility, reset matplotlib layout to fill space
         self.fig.tight_layout(pad=0, rect=(0.001, 0.002, 0.999, 0.999))
-        # Add matplotlib widget to this widgets layout
-        layout.addWidget(self.canvas_qt)
 
         ########## Initialise view from model
         self.update_model_view_axes()
         if model.coordinate_transformation_defined():
             self.update_model_view_traces()
        
-        ########## Connect own and sub-widget signals
+        ########## Connect own signals
         self.canvas_qt.mpl_connect("key_press_event", self._on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self._on_figure_enter)
         self.canvas_qt.mpl_connect("button_press_event", self._on_button_press)
@@ -116,10 +114,11 @@ class MplWidget(QWidget):
 
         ########## Connect foreign signals
         # Update plot view displaying axes points and origin
-        model.ax_conf_changed.connect(self.update_model_view_axes)
+        model.ax_input_data_changed.connect(self.update_model_view_axes)
         # Re-display pixel-space input points when model has updated data.
         model.output_data_changed.connect(self.update_model_view_traces)
         model.output_data_changed[int].connect(self.update_model_view_traces)
+
 
     @logExceptionSlot()
     def update_model_view_axes(self):
@@ -259,9 +258,9 @@ class MplWidget(QWidget):
     @logExceptionSlot(int, bool)
     def set_mode_add_trace_pts(self, trace_no, state=True):
         self.curr_trace_no = trace_no
-        if (self.op_mode == self.MODE_ADD_TRACE_PTS
-            and trace_no == self.curr_trace_no
-            ):
+        if state:
+            self.set_mode(self.MODE_ADD_TRACE_PTS)
+        else:
             self.set_mode(self.MODE_DEFAULT)
 
 
