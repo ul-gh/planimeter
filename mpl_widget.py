@@ -272,6 +272,7 @@ class MplWidget(QWidget):
         # Point is actually first displayed when a mouse move event occurs
         # and point data is updated from valid mouse coordinates.
         pt_index = x_ax.add_pt_px(np.full(2, NaN))
+        x_ax.pts_view_obj.set_data(*x_ax.pts_px.T)
         self._pick_and_blit(x_ax.pts_view_obj, pt_index)
         logger.info("Pick X axis points!")
 
@@ -280,6 +281,7 @@ class MplWidget(QWidget):
         # Point is actually first displayed when a mouse move event occurs
         # and point data is updated from valid mouse coordinates.
         pt_index = y_ax.add_pt_px(np.full(2, NaN))
+        y_ax.pts_view_obj.set_data(*y_ax.pts_px.T)
         self._pick_and_blit(y_ax.pts_view_obj, pt_index)
         logger.info("Pick Y axis points!")
 
