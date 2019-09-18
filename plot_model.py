@@ -20,7 +20,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 import matplotlib.pyplot as plt
 import upylib.u_plot_format as u_format
 
-from upylib.pyqt_debug import logExceptionSlot
+from upylib.pyqt_debug import logExceptionSlot, debug_trace
 
 class DataModel(QObject):
     """DataModel
@@ -427,7 +427,7 @@ class DataModel(QObject):
         For backplotting the result, inverse transformation matrix is also
         calculated.
         """
-        logger.debug(f"DataModel._calc_coordinate_transformation called")
+        #logger.debug(f"DataModel._calc_coordinate_transformation called")
         # This can be called before all axes points have been set
         if not self.axes_setup_is_complete():
             return
@@ -468,8 +468,11 @@ class DataModel(QObject):
                 y_ax_data_near / (y_ax_data_far - y_ax_data_near)
                 )
         # Calculate intersection point of the possibly shifted data coordinate
-        # axes.
+        # axes. Returns None if a division by a close-to-zero value occurs,
+        # which happens if axes sections are almost parallel or too short.
         ax_intersection = self._lines_intersection(x_ax.pts_px, y_ax.pts_px)
+        if ax_intersection is None:
+            return
 
         ######### Origin point of data coordinate system in pixel coordinates
         # This is later used for transforming all points
@@ -559,7 +562,7 @@ class DataModel(QObject):
         tr_end_lin = [tr.pts_lin[-1,0] for tr in self.traces
                       if tr.export and tr.pts_lin.shape[0] > 1]
         if not tr_start_lin or not tr_end_lin:
-            logger.debug(f"No export range. No traces marked for export?")
+            #logger.debug(f"No export range. No traces marked for export?")
             return
         x_start_lin_limit = max(tr_start_lin)
         x_end_lin_limit = min(tr_end_lin)
@@ -620,15 +623,10 @@ class DataModel(QObject):
         self.x_step_export = (self.x_end_export - self.x_start_export
                        ) / self.n_pts_export
 
-
-    ########## Helper functions
-    @staticmethod
-    def _lines_intersection(line1_pts, line2_pts):
-        """Calculates intersection of two lines defined by two points each.
-
-        line1_pts, line2_pts: For each line, two points in rows of a 2D array
-        returns: intersection point, 1D array
-        """
+    #Calculates intersection of two lines defined by two points each.
+    # line1_pts, line2_pts: Each two points in rows of a 2D array
+    # returns: Intersection point, 1D array or None value for invalid data
+    def _lines_intersection(self, line1_pts, line2_pts):
         x1, y1 = line1_pts[0] # Line 1, point 1
         x2, y2 = line1_pts[1] # Line 1, point 2
         x3, y3 = line2_pts[0] # Line 2, point 1
@@ -638,6 +636,8 @@ class DataModel(QObject):
         denominator = (y4-y3)*(x2-x1) - (y2-y1)*(x4-x3)
         num_xs = (x4-x3)*(x2*y1 - x1*y2) - (x2-x1)*(x4*y3 - x3*y4)
         num_ys = (y1-y2)*(x4*y3 - x3*y4) - (y3-y4)*(x2*y1 - x1*y2)
+        if isclose(denominator, 0.0, self.atol):
+            return None
         return np.array((num_xs, num_ys)) / denominator
 
 
@@ -650,8 +650,8 @@ class Trace(QObject):
         ########## Connection to the containing data model
         self.model = model
         ########## Plot trace configuration
-        self.trace_no = trace_no
         self.name = name
+        self.trace_no = trace_no
         # Marks this trace for export
         self.export = tr_conf.export
         # Keyword options for plotting. The instances can have different
@@ -719,16 +719,23 @@ class Trace(QObject):
 
     def add_pt_px(self, xydata) -> int:
         logger.debug(f"Call Trace.add_pt_px with data: {xydata}")
-        # Returns index of newly added point, here because points are always
-        # appended and later sorted, index is length of self.pts_px - 1
-        self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
+        import pdb
+        pdb.set_trace()
+        if self.pts_px.shape[0] > 0 and np.isnan(self.pts_px).any():
+            # There are NaN values in at least one data point. Set these first.
+            pt_index = np.isnan(self.pts_px).any(axis=1).nonzero()[0][0]
+            self.pts_px[pt_index] = xydata
+        else:
+            # Append new point with given coordinates
+            self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
+            pt_index = self.pts_px.shape[0]
         # Trigger a full update of the model and view of inputs and outputs
         if not self.model.axes_setup_is_complete():
             logger.warning("No live updates: Coordinate system not defined.")
             return
         self.model._process_tr_input_data(self.trace_no)
         self.model.tr_input_data_changed[int].emit(self.trace_no)
-        return self.pts_px.shape[0]
+        return pt_index
 
     def update_pt_px(self, xydata, index: int):
         # Assuming this is called from the view only thus raw points need not
@@ -857,8 +864,8 @@ class Axis(QObject):
         # with stored configuration after axis is instantiated in DataModel
         ########## Connection to the containing data model
         self.model = model
-        self.name = name
         ########## Axis default configuration
+        self.name = name
         # Keyword options for point markers.
         self.pts_fmt = ax_conf.pts_fmt
         self.log_scale = ax_conf.log_scale
@@ -946,9 +953,8 @@ class Axis(QObject):
             self.log_scale = False
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
-            return
-        self.log_scale = state
-        # Updates model outputs etc. when X and Y axis setup is complete
+        else:
+            self.log_scale = state
         self.model.ax_input_data_changed.emit()
 
     def add_pt_px(self, xydata) -> int:

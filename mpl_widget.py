@@ -18,6 +18,7 @@ import matplotlib.image
 #from matplotlib.patches import Polygon
 import matplotlib.backends.backend_qt5agg as mpl_backend_qt
 
+from plot_model import Trace, Axis
 from upylib.pyqt_debug import logExceptionSlot
 
 
@@ -68,13 +69,16 @@ class MplWidget(QWidget):
         ########## Operation state
         # What happens when the plot canvas is clicked..
         self._op_mode = self.MODE_DEFAULT
-        self._curr_trace_no = 0
+        self.curr_trace_no = 0
         # This stores the pyplot.Lines2D object when a plot item was picked
         self._picked_obj = None
         # Model component with view associated data for a mouse-picked object
-        self._picked_obj_model = None
+        self._picked_obj_model_attr = None
         # Index of a single picked point inside the view object
         self._picked_obj_index = 0
+        # All matplotlib Lines2D objects for axes, origin and traces
+        self._ax_view_objs = []
+        self._tr_view_objs = []
 
         ########## Matplotlib figure and axes setup
         self.fig = matplotlib.figure.Figure()
@@ -97,8 +101,6 @@ class MplWidget(QWidget):
         self.update_model_view_axes()
         if model.coordinate_transformation_defined():
             self.update_model_view_traces()
-        # Due to blitting support, the background must be captured initially
-        self._capture_objs_background([])
        
         ########## Connect own signals
         self.canvas_qt.mpl_connect("key_press_event", self._on_key_press)
@@ -126,9 +128,9 @@ class MplWidget(QWidget):
         and emits a signal informing when the canvas has been
         re-drawn.
         """
-        logger.debug("update_model_view_axes called")
+        #logger.debug("update_model_view_axes called")
         model = self.model
-        view_objs = []
+        ax_view_objs = []
         ########## X and Y axis:
         for ax in model.x_ax, model.y_ax:
             if ax.pts_view_obj is not None:
@@ -136,7 +138,7 @@ class MplWidget(QWidget):
             else:
                 ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
                 self._view_model_map[ax.pts_view_obj] = ax
-            view_objs.append(ax.pts_view_obj)
+            ax_view_objs.append(ax.pts_view_obj)
         ########## Origin:
         if isnan(model.origin_px).any():
             if model.origin_view_obj is not None:
@@ -156,22 +158,28 @@ class MplWidget(QWidget):
                     model.origin_view_obj = view_obj
                 else:
                     model.origin_view_obj.set_data(*model.origin_px)
-                view_objs.append(model.origin_view_obj)
+                ax_view_objs.append(model.origin_view_obj)
         ##### Redraw axes and origin view objects
-        self._blit_background_redraw_objs(view_objs)
+        # For modes other than MODE_DEFAULT, background was captured before,
+        # otherwise we need to do the blitting capture here
+        if self._op_mode == self.MODE_DEFAULT:
+            self._capture_objs_background(ax_view_objs)
+        self._blit_background_redraw_objs(ax_view_objs)
+        self._ax_view_objs = ax_view_objs
 
 
-    @logExceptionSlot()
-    @logExceptionSlot(int)
+    @pyqtSlot()
+    @pyqtSlot(int)
     def update_model_view_traces(self, trace_no=None):
         """Draw or redraw a trace from the data model.
         
         If the argument is None, update all traces.
         This also registers the view objects back into the model.
         """
+        #logger.debug("update_model_view_traces called")
         model = self.model
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
-        view_objs = []
+        tr_view_objs = []
         ########## Update interpolated trace if available
         for tr in traces:
             ##### STEP A: Draw or update raw pixel points
@@ -181,7 +189,7 @@ class MplWidget(QWidget):
                 self._view_model_map[view_obj] = tr
             else:
                 view_obj.set_data(*tr.pts_px.T)
-            view_objs.append(view_obj)
+            tr_view_objs.append(view_obj)
             ##### STEP B: Draw or update interpolated pixel points
             # Backtransform trace to pixel data coordinate system
             pts_i_px = model.get_pts_lin_i_px_coords(tr)
@@ -196,9 +204,14 @@ class MplWidget(QWidget):
             else:
                 # Trace handle for pts_lin_i exists. Update data.
                 view_obj.set_data(*pts_i_px.T)
-            view_objs.append(view_obj)
+            tr_view_objs.append(view_obj)
         ##### Redraw traces view objects
-        self._blit_background_redraw_objs(view_objs)
+        # For modes other than MODE_DEFAULT, background was captured before,
+        # otherwise we need to do the blitting capture here
+        if self._op_mode == self.MODE_DEFAULT:
+            self._capture_objs_background(tr_view_objs)
+        self._blit_background_redraw_objs(tr_view_objs)
+        self._tr_view_objs = tr_view_objs
 
 
     @logExceptionSlot(str)
@@ -211,6 +224,10 @@ class MplWidget(QWidget):
             image = matplotlib.image.imread(filename)
         except Exception as e:
             self.digitizer.show_error(e)
+            return
+        #all_except_image = self._ax_view_objs + self._tr_view_objs
+        #for obj in all_except_image:
+        #    obj.set_visible(False)
         self._mpl_axes_image = self.mpl_ax.imshow(
                 image[-1::-1],
                 interpolation=self.conf.app_conf.img_interpolation,
@@ -218,10 +235,11 @@ class MplWidget(QWidget):
                 zorder=0,
                 )
         self.mpl_ax.autoscale(enable=True)
+        # Complete canvas redraw
         self.canvas_qt.draw()
         self.mpl_ax.autoscale(enable=False)
-        # Due to blitting support, the background must be captured initially
-        self._capture_objs_background([])
+        self.update_model_view_axes()
+        self.update_model_view_traces()
         self.canvas_rescaled.emit(self._op_mode)
 
     ########## Mplwidget operation mode state machine transitions
@@ -233,6 +251,7 @@ class MplWidget(QWidget):
             return
         logger.debug(f"Entering new operation mode: {new_mode}.")
         self._op_mode = new_mode
+        self._based_on_op_mode_capture_background()
         # Call hanlers setting up each operation mode
         if new_mode == self.MODE_SETUP_X_AXIS:
             self._enter_mode_setup_x_axis()
@@ -263,7 +282,7 @@ class MplWidget(QWidget):
 
     @logExceptionSlot(int, bool)
     def set_mode_add_trace_pts(self, trace_no, state=True):
-        self._curr_trace_no = trace_no
+        self.curr_trace_no = trace_no
         if state:
             self.set_mode(self.MODE_ADD_TRACE_PTS)
         else:
@@ -273,22 +292,12 @@ class MplWidget(QWidget):
     ########## Handlers performing the operation mode transitions
     #          Each called from self.set_mode()
     def _enter_mode_setup_x_axis(self):
-        x_ax = self.model.x_ax
-        # Point is actually first displayed when a mouse move event occurs
-        # and point data is updated from valid mouse coordinates.
-        pt_index = x_ax.add_pt_px(np.full(2, NaN))
-        x_ax.pts_view_obj.set_data(*x_ax.pts_px.T)
-        self._pick_objs_blit_background(x_ax.pts_view_obj, pt_index)
         logger.info("Pick X axis points!")
+        self._add_point_and_select(self.model.x_ax, np.full(2, NaN))
 
     def _enter_mode_setup_y_axis(self):
-        y_ax = self.model.y_ax
-        # Point is actually first displayed when a mouse move event occurs
-        # and point data is updated from valid mouse coordinates.
-        pt_index = y_ax.add_pt_px(np.full(2, NaN))
-        y_ax.pts_view_obj.set_data(*y_ax.pts_px.T)
-        self._pick_objs_blit_background(y_ax.pts_view_obj, pt_index)
         logger.info("Pick Y axis points!")
+        self._add_point_and_select(self.model.y_ax, np.full(2, NaN))
 
     def _enter_mode_add_trace_pts(self):
         if not self.model.axes_setup_is_complete():
@@ -297,19 +306,16 @@ class MplWidget(QWidget):
             self.digitizer.show_text(text)
             self.set_mode(self.MODE_DEFAULT)
             return
-        tr = self.model.traces[self._curr_trace_no]
+        trace = self.model.traces[self.curr_trace_no]
         # If trace points have already been selected, ask whether to
         # delete them first before adding new points.
-        if tr.pts_px.shape[0] > 0 and self._confirm_delete():
+        if trace.pts_px.shape[0] > 0 and self._confirm_delete():
             # Clears data objects of curr_trace and triggers a view update
-            tr.init_data()
-        pt_index = tr.add_pt_px(np.full(2, NaN))
-        # Fixme asdfaslkd
-        self.update_model_view_traces(self._curr_trace_no)
-        self._pick_objs_blit_background(tr.pts_view_obj, pt_index)
-        # Enter or stay in add trace points mode
-        self.set_mode(self.MODE_ADD_TRACE_PTS)
-        logger.info(f"Add points for trace {self._curr_trace_no + 1}!")
+            trace.init_data()
+        logger.info(f"Add points mode for trace {self.curr_trace_no + 1}!")
+        # Add point to the trace, assuming the cursor is outside the figure
+        # canvas, point data is initialised with NaN coordinates.
+        self._add_point_and_select(trace, np.full(2, NaN))
 
     def _enter_mode_drag_obj(self):
         logger.info("Drag the picked object!")
@@ -319,7 +325,13 @@ class MplWidget(QWidget):
         self._picked_obj = None
 
 
-    ########## Blocking messagebox confirming points deletion
+    def _add_point_and_select(self, model_attr, pt_px):
+        # The model returns an array index for the point inside the trace.
+        self._picked_obj_index = model_attr.add_pt_px(pt_px)
+        self._picked_obj = model_attr.pts_view_obj
+        self._picked_obj_model_attr = model_attr
+
+    # Blocking messagebox confirming points deletion
     def _confirm_delete(self):
         messagebox = self.digitizer.messagebox
         messagebox.setIcon(QMessageBox.Warning)
@@ -332,23 +344,21 @@ class MplWidget(QWidget):
                 QMessageBox.Save | QMessageBox.Discard)
         return messagebox.exec_() == QMessageBox.Discard
 
-
     ########## Matplotlib canvas event handlers
     def _on_figure_enter(self, event):
         # Set Qt keyboard input focus to the matplotlib canvas
         # in order to receive key press events
-        self.canvas_qt.setfocus()
+        self.canvas_qt.setFocus()
 
     def _on_key_press(self, event):
         logger.debug(f"Event key pressed is: {event.key}")
+        ##### Escape key switches back to default
         if event.key == "escape":
             self.set_mode(self.MODE_DEFAULT)
 
     def _on_button_press(self, event):
-        ########## Mouse click event handler
-        # event: Matplotlib event object
-        # matplotlib.backend_bases.MouseButton.RIGHT = 3
-        if event.button == 3:
+        ##### Right mouse button switches back to default
+        if event.button == 3: # matplotlib.backend_bases.MouseButton.RIGHT = 3
             if self._op_mode != self.MODE_DEFAULT:
                 self.set_mode(self.MODE_DEFAULT)
             return
@@ -360,46 +370,35 @@ class MplWidget(QWidget):
         ##### Add X-axis point
         if self._op_mode == self.MODE_SETUP_X_AXIS:
             ax = model.x_ax
-            ax.update_pt_px(px_xy, self._picked_obj_index)
             if isnan(ax.pts_px).any():
                 # First point was added before when MODE_SETUP_X_AXIS was set.
-                # Add new point to the model and continue. Point is actually
-                # only first displayed when a mouse move event occurs
-                # and point data is updated from valid mouse coordinates.
-                pt_index = ax.add_pt_px(px_xy)
-                self._pick_objs_blit_background(ax.pts_view_obj, pt_index)
+                # Add new point to the model and continue.
+                self._add_point_and_select(ax, px_xy)
             else:
-                logger.debug(f"OpMode before: {self._op_mode}")
                 # Two X-axis points set. Validate and reset op mode if valid
                 if ax.valid_pts_px():
-                    logger.info("X axis points complete")
                     self.set_mode(self.MODE_DEFAULT)
-                    logger.debug(f"OpMode after: {self._op_mode}")
             return
         ##### Add Y-axis point
         if self._op_mode == self.MODE_SETUP_Y_AXIS:
             ax = model.y_ax
-            ax.update_pt_px(px_xy, self._picked_obj_index)
             if isnan(ax.pts_px).any():
-                # First point was added before when MODE_SETUP_Y_AXIS was set.
-                # Add new point to the model and continue. Point is actually
-                # only first displayed when a mouse move event occurs
-                # and point data is updated from valid mouse coordinates.
-                pt_index = ax.add_pt_px(px_xy)
-                self._pick_objs_blit_background(ax.pts_view_obj, pt_index)
+                # First point was added before when MODE_SETUP_X_AXIS was set.
+                # Add new point to the model and continue.
+                self._add_point_and_select(ax, px_xy)
             else:
                 # Two X-axis points set. Validate and reset op mode if valid
                 if ax.valid_pts_px():
-                    logger.info("Y axis points complete")
                     self.set_mode(self.MODE_DEFAULT)
             return
         ##### Add trace point
         if self._op_mode == self.MODE_ADD_TRACE_PTS:
-            tr = model.traces[self._curr_trace_no]
+            trace = model.traces[self.curr_trace_no]
             # Add new point to the model at current mouse coordinates
-            pt_index = tr.add_pt_px(px_xy)
-            self._pick_objs_blit_background(tr.pts_view_obj, pt_index)
+            self._add_point_and_select(trace, px_xy)
             return
+        return
+
     # Mouse pick event handling. This sets MODE_DRAG_OBJ
     def _on_pick(self, event):
         logger.debug("Mouse pick event received!")
@@ -409,49 +408,51 @@ class MplWidget(QWidget):
         picked_obj = event.artist
         # Model components with view associated data for each picked object
         # are looked up from the view-model mapping.
-        picked_obj_model = self._view_model_map[picked_obj]
+        picked_obj_model_attr = self._view_model_map[picked_obj]
         # For non-mouse-pickable view objects, a None is stored in the mapping
-        if picked_obj_model is None:
+        if picked_obj_model_attr is None:
             # Not found in mapping, view object is thus not mouse-pickable
             return
-        logger.debug(f"Picked object: {picked_obj}")
-        logger.debug(f"Picked from model: {picked_obj_model.name}")
-        self._op_mode = self.MODE_DRAG_OBJ
-        index = event.ind if hasattr(event, "ind") else None
-        #self.pick_origin_x = event.mouseevent.xdata
-        self._pick_objs_blit_background(picked_obj, index)
-        self.canvas_qt.draw_idle()
+        # Object is pickable: Set instance attributes to select them
+        self._picked_obj = picked_obj
+        self._picked_obj_index = event.ind[0] if hasattr(event, "ind") else None
+        self._picked_obj_model_attr = picked_obj_model_attr
+        logger.debug(f"Picked object: {self._picked_obj}")
+        logger.debug(f"Picked object index: {self._picked_obj_index}")
+        logger.debug(f"Picked from model: {self._picked_obj_model_attr.name}")
+        # Further select ependent objects for operation the blitting function
+        if isinstance(picked_obj_model_attr, Trace):
+            self._picked_and_dependent_objs = self._tr_view_objs
+        elif isinstance(picked_obj_model_attr, Axis):
+            self._picked_and_dependent_objs = self._ax_view_objs
+        else:
+            self._picked_and_dependent_objs = [picked_obj]
+        # Actual movement/dragging of objects occurs in motion notify handler
+        self.set_mode(self.MODE_DRAG_OBJ)
 
     def _on_button_release(self, event):
-        # The mouse button release event is only used for object drag-mode
-        if self._op_mode != self.MODE_DRAG_OBJ:
-            return
-        picked_obj = self._picked_obj
-        if picked_obj is None:
-            return
-        # Model data is updated from the view
-        index = self._picked_obj_index
-        xydata = picked_obj.get_xydata()
-        # This also emits the pts_changed signal
-        self._picked_obj_model.update_pt_px(xydata[index], index)
-        # Restore default state
-        self.set_mode(self.MODE_DEFAULT)
-        #self._picked_obj = None
+        # Mouse button release event ends MODE_DRAG_OBJ
+        if self._op_mode == self.MODE_DRAG_OBJ:
+            self.set_mode(self.MODE_DEFAULT)
 
     def _on_motion_notify(self, event):
+        xydata = event.xdata, event.ydata
+        # Cursor outside of canvas returns none coordiantes, these are ignored
+        if None in xydata:
+            return
         picked_obj = self._picked_obj
         if picked_obj is not None:
             index = self._picked_obj_index
             if index is not None:
                 # Move normal points
-                xydata = event.xdata, event.ydata
-                self._picked_obj_model.update_pt_px(xydata, index)
+                self._picked_obj_model_attr.update_pt_px(xydata, index)
             else:
                 # FIXME: Not implemented, move polygons along X etc.
                 pass
         else:
             # FIXME: Update coordinates display etc
             pass
+
 
     ########## Canvas object redrawing implements background capture blit
     # Qt AGG backend required:
@@ -473,6 +474,16 @@ class MplWidget(QWidget):
             self.mpl_ax.draw_artist(obj)
         # Blitting final step does seem to also update the Qt widget.
         self.canvas_qt.blit(self.mpl_ax.bbox)
+
+    def _based_on_op_mode_capture_background(self):
+        # Prepare blitting operation for modes other than MODE_DEFAULT
+        # (for default mode, blitting is always done on model view updates)
+        if self._op_mode in (self.MODE_SETUP_X_AXIS, self.MODE_SETUP_Y_AXIS):
+            self._capture_objs_background(self._ax_view_objs)
+        elif self._op_mode == self.MODE_ADD_TRACE_PTS:
+            self._capture_objs_background(self._tr_view_objs)
+        elif self._op_mode == self.MODE_DRAG_OBJ:
+            self._capture_objs_background(self._picked_and_dependent_objs)
 
     # Layout has only the matplotlib Qt AGG backend as a widget (canvas_qt)
     def _set_layout(self):
