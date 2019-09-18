@@ -76,8 +76,8 @@ class DataModel(QObject):
         ########## Plot model composition
 
         ##### Two axes
-        self.x_ax = Axis(self, conf.x_ax_conf)
-        self.y_ax = Axis(self, conf.y_ax_conf)
+        self.x_ax = Axis(self, conf.x_ax_conf, "X Axis Object")
+        self.y_ax = Axis(self, conf.y_ax_conf, "Y Axis Object")
         ##### Origin
         self.origin_px = np.full(2, NaN)
         # Matplotlib format code
@@ -841,6 +841,9 @@ class Trace(QObject):
                 self.pts = self.pts_lin.copy()
                 self.f_interp = self.f_interp_lin
 
+    def __repr__(self):
+        return self.name
+
 
 class Axis(QObject):
     """Plot axis
@@ -848,12 +851,13 @@ class Axis(QObject):
     This class includes access methods for GUI/model interactive
     axis configuration or re-configuration.
     """
-    def __init__(self, model, ax_conf):
+    def __init__(self, model, ax_conf, name):
         super().__init__(model)
         # Initial axis configuration. These attributes are overwritten
         # with stored configuration after axis is instantiated in DataModel
         ########## Connection to the containing data model
         self.model = model
+        self.name = name
         ########## Axis default configuration
         # Keyword options for point markers.
         self.pts_fmt = ax_conf.pts_fmt
@@ -1013,5 +1017,8 @@ class Axis(QObject):
         # into a new context.
         del state["pts_view_obj"], state["model"]
         return state
+    
+    def __repr__(self):
+        return self.name
 
 
