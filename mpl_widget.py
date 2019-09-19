@@ -7,6 +7,7 @@ License: GPL version 3
 import logging
 logger = logging.getLogger(__name__)
 
+import os
 import numpy as np
 from numpy import NaN, isnan
 
@@ -106,8 +107,7 @@ class MplWidget(QWidget):
         self.canvas_qt.mpl_connect("key_press_event", self._on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self._on_figure_enter)
         self.canvas_qt.mpl_connect("button_press_event", self._on_button_press)
-        self.canvas_qt.mpl_connect("button_release_event",
-                                   self._on_button_release)
+        self.canvas_qt.mpl_connect("button_release_event", self._on_button_release)
         self.canvas_qt.mpl_connect("motion_notify_event", self._on_motion_notify)
         self.canvas_qt.mpl_connect("pick_event", self._on_pick)
 
@@ -119,10 +119,11 @@ class MplWidget(QWidget):
         model.output_data_changed[int].connect(self.update_model_view_traces)
 
 
+    ########## Data Input Methods
     @logExceptionSlot()
     def update_model_view_axes(self):
         """Updates axes model features displayed in plot widget,
-        including origin only if it fits inside the canvas.
+        including origin point only if it fits inside the canvas.
 
         This also registers the view objects back into the model
         and emits a signal informing when the canvas has been
@@ -138,27 +139,28 @@ class MplWidget(QWidget):
             else:
                 ax.pts_view_obj, = self.mpl_ax.plot(*ax.pts_px.T, **ax.pts_fmt)
                 self._view_model_map[ax.pts_view_obj] = ax
+            ax.pts_view_obj.set_label(f"Pixel Section Defining the {ax.name}")
             ax_view_objs.append(ax.pts_view_obj)
         ########## Origin:
-        if isnan(model.origin_px).any():
+        # Containment check via numpy elementwise operators
+        if (    isnan(model.origin_px).any()
+                or (model.origin_px > self.fig.bbox.size).any()
+                or (model.origin_px < 0.0).any()
+                ):
             if model.origin_view_obj is not None:
                 model.origin_view_obj.remove()
                 model.origin_view_obj = None
         else:
-            # Containment check via numpy elementwise operators
-            if (    (model.origin_px < self.fig.bbox.size).all()
-                    and (model.origin_px > 0).all()
-                    ):
-                if model.origin_view_obj is None:
-                    view_obj, = self.mpl_ax.plot(
+            if model.origin_view_obj is None:
+                model.origin_view_obj, = self.mpl_ax.plot(
                         *model.origin_px, **model.origin_fmt)
-                    # The origin point is calculated and not supposed to be
-                    # subjected to drag-and-drop etc.: registering it as None
-                    self._view_model_map[view_obj] = None
-                    model.origin_view_obj = view_obj
-                else:
-                    model.origin_view_obj.set_data(*model.origin_px)
-                ax_view_objs.append(model.origin_view_obj)
+                # The origin point is calculated and not supposed to be
+                # subjected to drag-and-drop etc.: registering it as None
+                self._view_model_map[model.origin_view_obj] = None
+            else:
+                model.origin_view_obj.set_data(*model.origin_px)
+            model.origin_view_obj.set_label("Data Axes Origin")
+            ax_view_objs.append(model.origin_view_obj)
         ##### Redraw axes and origin view objects
         # For modes other than MODE_DEFAULT, background was captured before,
         # otherwise we need to do the blitting capture here
@@ -176,7 +178,7 @@ class MplWidget(QWidget):
         If the argument is None, update all traces.
         This also registers the view objects back into the model.
         """
-        #logger.debug("update_model_view_traces called")
+        #logger.debug(f"update_model_view_traces called for trace: {trace_no}")
         model = self.model
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
         tr_view_objs = []
@@ -189,6 +191,7 @@ class MplWidget(QWidget):
                 self._view_model_map[view_obj] = tr
             else:
                 view_obj.set_data(*tr.pts_px.T)
+            view_obj.set_label(f"Raw Points for {tr.name}")
             tr_view_objs.append(view_obj)
             ##### STEP B: Draw or update interpolated pixel points
             # Backtransform trace to pixel data coordinate system
@@ -204,6 +207,7 @@ class MplWidget(QWidget):
             else:
                 # Trace handle for pts_lin_i exists. Update data.
                 view_obj.set_data(*pts_i_px.T)
+            view_obj.set_label(f"Interpolated Points for {tr.name}")
             tr_view_objs.append(view_obj)
         ##### Redraw traces view objects
         # For modes other than MODE_DEFAULT, background was captured before,
@@ -216,12 +220,18 @@ class MplWidget(QWidget):
 
     @logExceptionSlot(str)
     def load_image(self, filename):
-        """Load source/input image for digitizing"""
+        """Load source/input image for digitizing.
+        """
+        logger.debug(f"load_image called with argument: {filename}")
         # Remove existing image from plot canvas if present
         if hasattr(self, "_mpl_axes_image"):
             self._mpl_axes_image.remove()
         try:
-            image = matplotlib.image.imread(filename)
+            if os.path.isfile(filename):
+                image = matplotlib.image.imread(filename)
+            else:
+                self.digitizer.show_text("Cannot open file. Not an image?")
+                return
         except Exception as e:
             self.digitizer.show_error(e)
             return
@@ -243,7 +253,15 @@ class MplWidget(QWidget):
         self.canvas_rescaled.emit(self._op_mode)
         self.model.ax_input_data_changed.emit()
 
-    ########## Mplwidget operation mode state machine transitions
+
+    ########## Data Output Methods
+    def print_model_view_items(self):
+        """Prints info about the currently plotted view items
+        """
+        view_items_text = ",\n".join([str(i) for i in self.mpl_ax.lines])
+        print(view_items_text)
+
+    ########## State Machine Methods
     @logExceptionSlot(int)
     def set_mode(self, new_mode: int):
         logger.debug(f"set_mode called with argument: {new_mode}.")
@@ -290,7 +308,7 @@ class MplWidget(QWidget):
             self.set_mode(self.MODE_DEFAULT)
 
 
-    ########## Handlers performing the operation mode transitions
+    ##### Handlers performing the operation mode transitions
     #          Each called from self.set_mode()
     def _enter_mode_setup_x_axis(self):
         logger.info("Pick X axis points!")
@@ -441,8 +459,7 @@ class MplWidget(QWidget):
         # Cursor outside of canvas returns none coordiantes, these are ignored
         if None in xydata:
             return
-        picked_obj = self._picked_obj
-        if picked_obj is not None:
+        if self.picked_obj is not None:
             index = self._picked_obj_index
             if index is not None:
                 # Move normal points

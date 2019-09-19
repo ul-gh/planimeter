@@ -76,8 +76,8 @@ class DataModel(QObject):
         ########## Plot model composition
 
         ##### Two axes
-        self.x_ax = Axis(self, conf.x_ax_conf, "X Axis Object")
-        self.y_ax = Axis(self, conf.y_ax_conf, "Y Axis Object")
+        self.x_ax = Axis(self, conf.x_ax_conf, "X Axis")
+        self.y_ax = Axis(self, conf.y_ax_conf, "Y Axis")
         ##### Origin
         self.origin_px = np.full(2, NaN)
         # Matplotlib format code
@@ -148,7 +148,7 @@ class DataModel(QObject):
         self.tr_input_data_changed[int].connect(self._process_tr_input_data)
 
 
-    ########## Public methods
+    ########## Export Related Methods
     def wip_export(self, tr):
         # FIXME: Temporary solution
         grid = np.linspace(tr.pts[0,0], tr.pts[-1,0], 100)
@@ -355,7 +355,7 @@ class DataModel(QObject):
         self.export_settings_changed.emit()
 
 
-    ########## Public properties
+    ########## Configuration and Validation Methods
     def axes_setup_is_complete(self) -> bool:
         """Returns True if both axes configuration is complete and valid
         """
@@ -381,7 +381,7 @@ class DataModel(QObject):
         self._store_ax_conf = state
 
 
-    ########## Public functions
+    ########## Intermediate Data Related Methods
     def data_to_px_coords(self, lin_data_pts: np.ndarray) -> np.ndarray:
         """Returns transformation from linear(!) data coordinates
         into image pixel coordinates.
@@ -449,7 +449,7 @@ class DataModel(QObject):
         return (xmin_px, xmax_px), (ymin_px, ymax_px)
 
 
-    ########## Private methods
+    ########## Coordinate Transformation Related Private Methods
     def _calc_coordinate_transformation(self) -> None:
         """Calculates data axes origin point offset in pixel coordinates and
         the coordinate transformation matrix including axes scale.
@@ -581,7 +581,7 @@ class DataModel(QObject):
             self.output_data_changed[int].emit(trace_no)
 
 
-    ##### Export specific private functions
+    ##### Exporting Related Private Methods
     # Called from self._process_tr_input_data.
     # Set export range limits on the common X axis such that all traces can
     # be exported by using interpolation, i.e. no extrapolation takes place.
@@ -739,7 +739,6 @@ class Trace(QObject):
                 }
 
 
-    ########## GUI scope and public methods
     def clear_trace(self):
         """Clears this trace and re-initialises with zero presets
         """
@@ -783,7 +782,7 @@ class Trace(QObject):
         self.model._process_tr_input_data(self.trace_no)
         self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-    ########## Model-specific implementation part
+
     def _sort_pts(self) -> None:
         # Sort trace points along the first axis and
         # remove duplicate rows.
@@ -924,11 +923,39 @@ class Axis(QObject):
         section are both set and valid (i.e. not zero for log axes)
         """
         return self._valid_pts_data
-    
+
+    # Returns axis configuration as a dictionary used for persistent storage.
+    def restorableable_state(self) -> dict:
+        state = vars(self).copy()
+        # The view object belongs to the view component and cannot be restored
+        # into a new context.
+        del state["pts_view_obj"], state["model"]
+        return state
+
     def log_scale(self) -> bool:
         """Returns True if this axis data space scale is logarithmic
         """
         return self._log_scale
+    @logExceptionSlot(bool)
+    def set_log_scale(self, state=True):
+        """Sets logarithmic scale data coordinates for this axis.
+                
+        For invalid data, an error signal is emitted and model is left
+        untouched.
+        """
+        logger.debug(f"set_log_state called with state: {state}")
+        # Prevent recursive or duplicate calls
+        if state == self._log_scale:
+            return
+        # Prevent setting logarithmic scale when axes values contain zero
+        if state and isclose(self.pts_data, 0.0, atol=self.atol).any():
+            self._log_scale = False
+            self.model.value_error.emit(
+                    "X axis values must not be zero for log axes")
+        else:
+            self._log_scale = state
+        self.model.ax_input_data_changed.emit()
+
 
     @logExceptionSlot(float)
     def set_ax_start(self, value):
@@ -976,26 +1003,6 @@ class Axis(QObject):
             self.pts_data[1] = value
             self._valid_pts_data = not isnan(self.pts_data).any()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.ax_input_data_changed.emit()
-
-    @logExceptionSlot(bool)
-    def set_log_scale(self, state=True):
-        """Sets logarithmic scale data coordinates for this axis.
-                
-        For invalid data, an error signal is emitted and model is left
-        untouched.
-        """
-        logger.debug(f"set_log_state called with state: {state}")
-        # Prevent recursive or duplicate calls
-        if state == self._log_scale:
-            return
-        # Prevent setting logarithmic scale when axes values contain zero
-        if state and isclose(self.pts_data, 0.0, atol=self.atol).any():
-            self._log_scale = False
-            self.model.value_error.emit(
-                    "X axis values must not be zero for log axes")
-        else:
-            self._log_scale = state
         self.model.ax_input_data_changed.emit()
 
     def add_pt_px(self, xydata) -> int:
@@ -1058,14 +1065,6 @@ class Axis(QObject):
         self._valid_pts_px = False
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
-
-    # Returns axis configuration as a dictionary used for persistent storage.
-    def get_state(self) -> dict:
-        state = vars(self).copy()
-        # The view object belongs to the view component and cannot be restored
-        # into a new context.
-        del state["pts_view_obj"], state["model"]
-        return state
     
     def __str__(self):
         return self.name

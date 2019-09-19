@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """Configuration settings for application and modules
 """
-from PyQt5.QtCore import QDir
-
 class APPLICATION():
     """Application Default Settings
     """
     config_file_name = "config.pickle"
     # Default working directory for file open etc.
-    wdir = QDir.homePath()
+    wdir = ""
+    # Last opened image
+    last_image_file = ""
     # Default window size
     window_size = (800, 600)
     # Minimum plot widget height

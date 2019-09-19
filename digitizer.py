@@ -137,6 +137,7 @@ class Digitizer(QWidget):
         logger.critical(text)
         self.messagebox.setInformativeText(text)
         self.messagebox.setWindowTitle("Plot Workbench Error")
+        self.messagebox.raise_()
         self.messagebox.exec_()
 
     @logExceptionSlot(str)

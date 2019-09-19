@@ -8,9 +8,10 @@ Ulrich Lukas 2019-07-29
 import sys
 import logging
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-# FIXME: Silence matplotlib for debug only
+# FIXME: Set levels for debug only
 logging.getLogger("matplotlib.axes._base").setLevel(logging.INFO)
-logger = logging.getLogger(__name__)
+logging.getLogger("matplotlib.pyplot").setLevel(logging.INFO)
+logger = logging.getLogger("MainWindow")
 
 import os
 import pickle
@@ -70,10 +71,9 @@ class MainWindow(QMainWindow):
         self.conf = conf = RuntimeConfig()
         conf.load_from_configfile()
 
-        # Working directory stored in config file might not exist
-        self.wdir = (conf.app_conf.wdir
-                     if os.path.exists(conf.app_conf.wdir)
-                     else QDir.homePath())
+        # Working directory stored in config file
+        self.set_wdir(conf.app_conf.wdir)
+        self.set_last_image_file(conf.app_conf.last_image_file)
         self.setMinimumSize(QSize(*conf.app_conf.window_size))
         self.setWindowTitle("Plot Workbench -- Main Window -- "
                             "Digitize, Interpolate, Optimize, Approximate")
@@ -88,12 +88,12 @@ class MainWindow(QMainWindow):
         self.dlg_open_image = QFileDialog(
                 self,
                 "Open Source Image",
-                self.wdir,
+                self._wdir,
                 "Images (*.png *.jpg *.jpeg)")
         self.dlg_export_csv = QFileDialog(
-                self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
+                self, "Export CSV", self._wdir, "Text/CSV (*.csv *.txt)")
         self.dlg_export_xlsx = QFileDialog(
-                self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
+                self, "Export XLS/XLSX", self._wdir, "Excel (*.xlsx)")
         
         ########## Embedded IPython Kernel and Jupyter Console Launcher
         self.ipyconsole = EmbeddedIPythonKernel(self)
@@ -114,8 +114,14 @@ class MainWindow(QMainWindow):
 
         # Dialog box signals
         self.dlg_open_image.fileSelected.connect(self.cw.mplw.load_image)
+        self.dlg_open_image.fileSelected.connect(self.set_last_image_file)
         self.dlg_open_image.directoryEntered.connect(self.set_wdir)
         self.dlg_export_csv.fileSelected.connect(self.cw.export_csv)
+        
+        # Reopen last file if requested and if it exists
+        if self.last_image_file() != "":
+            self.cw.mplw.load_image(self.last_image_file())
+        
 
     def closeEvent(self, event):
         """closeEvent() inherited from QMainWindow, reimplemented here.
@@ -132,17 +138,27 @@ class MainWindow(QMainWindow):
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None
         # Save working directory
-        self.conf.app_conf.wdir = self.wdir
+        self.conf.app_conf.wdir = self._wdir
         # Store all configuration
         self.conf.store_to_configfile()
         self.ipyconsole.shutdown_kernel()
         event.accept()
 
+    def wdir(self):
+        return self._wdir
     @pyqtSlot(str)
     def set_wdir(self, abs_path):
-        """Set working directory to last opened file directory"""
-        self.wdir = abs_path
+        # Set working directory to last opened file directory
+        self._wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
 
+    def last_image_file(self):
+        return self._last_image_file
+    @pyqtSlot(str)
+    def set_last_image_file(self, abs_path):
+        # This property will be reloaded if persistent_storage property of
+        # digitizer instance is set. Then, the input image file will be
+        # re-loaded on next start
+        self._last_image_file = abs_path if os.path.isfile(abs_path) else ""
 
 class MainToolbar(NavigationToolbar2QT):
     def __init__(self, canvas, parent, coordinates=True):
@@ -211,10 +227,12 @@ if __name__ == "__main__":
     mainw.activateWindow()
 
     # Set up some shortcuts for command line interactive use.
+    mplw = mainw.cw.mplw
     ax = mainw.cw.mplw.mpl_ax
     fig = mainw.cw.mplw.fig
     cv = mainw.cw.mplw.canvas_qt
     redraw = mainw.cw.mplw.canvas_qt.draw_idle
+    print_model_view_items = mainw.cw.mplw.print_model_view_items
 
     model = mainw.cw.model
     traces = model.traces
