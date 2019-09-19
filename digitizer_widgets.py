@@ -81,7 +81,7 @@ class DataCoordProps(QGroupBox):
         x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
         y_min_max = self.y_min_edit.value(), self.y_max_edit.value()
         # Displays error message box for invalid data
-        bbox = self.model.get_px_from_data_bounds(x_min_max, y_min_max)
+        bbox = self.model.px_from_data_bounds(x_min_max, y_min_max)
         if bbox is not None:
             x_min_max_px, y_min_max_px = bbox
             self.mplw.mpl_ax.set_xbound(x_min_max)
@@ -145,7 +145,7 @@ class ExportSettingsBox(QGroupBox):
 
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
-        logger.debug("ExportSettings.update_mplw_view not implemented")
+        pass
     
     def _set_layout(self):
         layout = QHBoxLayout(self)
@@ -214,7 +214,7 @@ class TraceConfTable(QTableWidget):
 
     @logExceptionSlot()
     def update_model_view(self):
-        logger.debug("TraceConfTable.update_model_view not implemented")
+        pass
 
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
@@ -305,7 +305,7 @@ class AxConfWidget(QWidget):
         self.btn_pick_y.toggled.connect(mplw.set_mode_setup_y_axis)
         self.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
         self.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
-        self.btn_store_config.toggled.connect(model.set_store_config)
+        self.btn_store_config.toggled.connect(model.set_persistent_storage)
         # Number input boxes emit float signals.
         self.xstart_edit.valid_number_entered.connect(model.x_ax.set_ax_start)
         self.ystart_edit.valid_number_entered.connect(model.y_ax.set_ax_start)
@@ -340,12 +340,15 @@ class AxConfWidget(QWidget):
         self.ystart_edit.setValue(y_ax.pts_data[0])
         self.yend_edit.setValue(y_ax.pts_data[1])
         # Update log/lin radio buttons.
-        self.btn_lin_x.setChecked(not x_ax.log_scale)
-        self.btn_log_x.setChecked(x_ax.log_scale)
-        self.btn_lin_y.setChecked(not y_ax.log_scale)
-        self.btn_log_y.setChecked(y_ax.log_scale)
+        self.btn_lin_x.setChecked(not x_ax.log_scale())
+        self.btn_log_x.setChecked(x_ax.log_scale())
+        self.btn_lin_y.setChecked(not y_ax.log_scale())
+        self.btn_log_y.setChecked(y_ax.log_scale())
+        # Pick axes points buttons
+        self.btn_pick_x.set_green(x_ax.valid_pts_px())
+        self.btn_pick_y.set_green(y_ax.valid_pts_px())
         # Store config button
-        self.btn_store_config.setChecked(self.model.store_ax_conf)
+        self.btn_store_config.setChecked(self.model.persistent_storage())
 
     def set_green_x_ax(self, state):
         # Background set to green when model has valid data

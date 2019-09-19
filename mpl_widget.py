@@ -192,7 +192,7 @@ class MplWidget(QWidget):
             tr_view_objs.append(view_obj)
             ##### STEP B: Draw or update interpolated pixel points
             # Backtransform trace to pixel data coordinate system
-            pts_i_px = model.get_pts_lin_i_px_coords(tr)
+            pts_i_px = model.pts_lin_i_px_coords(tr)
             view_obj = tr.pts_i_view_obj
             if view_obj is None:
                 # Draw trace on matplotlib widget
@@ -238,9 +238,10 @@ class MplWidget(QWidget):
         # Complete canvas redraw
         self.canvas_qt.draw()
         self.mpl_ax.autoscale(enable=False)
-        self.update_model_view_axes()
-        self.update_model_view_traces()
+        #self.update_model_view_axes()
+        #self.update_model_view_traces()
         self.canvas_rescaled.emit(self._op_mode)
+        self.model.ax_input_data_changed.emit()
 
     ########## Mplwidget operation mode state machine transitions
     @logExceptionSlot(int)
@@ -311,7 +312,7 @@ class MplWidget(QWidget):
         # delete them first before adding new points.
         if trace.pts_px.shape[0] > 0 and self._confirm_delete():
             # Clears data objects of curr_trace and triggers a view update
-            trace.init_data()
+            trace.clear_trace()
         logger.info(f"Add points mode for trace {self.curr_trace_no + 1}!")
         # Add point to the trace, assuming the cursor is outside the figure
         # canvas, point data is initialised with NaN coordinates.

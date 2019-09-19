@@ -20,7 +20,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 import matplotlib.pyplot as plt
 import upylib.u_plot_format as u_format
 
-from upylib.pyqt_debug import logExceptionSlot, debug_trace
+from upylib.pyqt_debug import logExceptionSlot
 
 class DataModel(QObject):
     """DataModel
@@ -60,7 +60,7 @@ class DataModel(QObject):
     # (pixel-space) input points. Can address a single trace by number index.
     # When a trace is added or deleted, the signal is emitted without index.
     tr_input_data_changed = pyqtSignal([], [int])
-    # Emitted from the axes objects, updates view outputs
+    # Emitted from the axes objects, updates all view outputs
     ax_input_data_changed = pyqtSignal()
     # Triggers updates of coordinate settings box
     coordinate_system_changed = pyqtSignal()
@@ -128,7 +128,7 @@ class DataModel(QObject):
         # Absolute tolerance for testing if values are close to zero
         self.atol = conf.model_conf.atol
         # Store axes configuration persistently on disk when set
-        self.store_ax_conf = conf.model_conf.store_ax_conf
+        self._store_ax_conf = conf.model_conf.store_ax_conf
 
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
@@ -147,20 +147,8 @@ class DataModel(QObject):
         self.tr_input_data_changed.connect(self._process_tr_input_data)
         self.tr_input_data_changed[int].connect(self._process_tr_input_data)
 
-    ########## Global validity checks
-    def axes_setup_is_complete(self) -> bool:
-        """Returns True if both axes configuration is complete and valid
-        """
-        return self.x_ax.is_complete() and self.y_ax.is_complete()
 
-    def coordinate_transformation_defined(self) -> bool:
-        """Returns True if coordinate system transformation matrices for
-        both pixel-to-data direction and reverse direction are defined
-        """
-        return (self.data_to_px_mat is not None
-                and self.px_to_data_mat is not None)
-
-    ########## Export related functions
+    ########## Public methods
     def wip_export(self, tr):
         # FIXME: Temporary solution
         grid = np.linspace(tr.pts[0,0], tr.pts[-1,0], 100)
@@ -268,6 +256,7 @@ class DataModel(QObject):
             output_arr[row] = output_func(x_grid_export)
         self.output_arr = output_arr
 
+
     @logExceptionSlot(float)
     def set_x_start_export(self, x_start: float):
         if isclose(self.x_end_export - x_start, 0.0, atol=self.atol):
@@ -364,20 +353,86 @@ class DataModel(QObject):
         # Update total number of points
         self.n_pts_export = N_tot
         self.export_settings_changed.emit()
-    
-    ########## Coordinate system specific functions
-    def get_px_from_data_bounds(self, x_min_max, y_min_max):
+
+
+    ########## Public properties
+    def axes_setup_is_complete(self) -> bool:
+        """Returns True if both axes configuration is complete and valid
+        """
+        return self.x_ax.is_complete() and self.y_ax.is_complete()
+
+    def coordinate_transformation_defined(self) -> bool:
+        """Returns True if coordinate system transformation matrices for
+        both pixel-to-data direction and reverse direction are defined
+        """
+        return (self.data_to_px_mat is not None
+                and self.px_to_data_mat is not None)
+
+    def persistent_storage(self):
+        """Returns true if persistent storage is selected
+        """
+        return self._store_ax_conf
+
+    @logExceptionSlot(bool)
+    def set_persistent_storage(self, state):
+        """Sets flag to request axes configuration to be saved and restored
+        when the application is closed
+        """
+        self._store_ax_conf = state
+
+
+    ########## Public functions
+    def data_to_px_coords(self, lin_data_pts: np.ndarray) -> np.ndarray:
+        """Returns transformation from linear(!) data coordinates
+        into image pixel coordinates.
+        
+        ! Data points must already be in linear or linearised space !
+
+        Output points are offset by pixel coordinates of data axes
+        origin, i.e. the output is absolute.
+        
+        Input and output are 2D arrays of X and Y in rows.
+        """
+        if self.coordinate_transformation_defined():
+            # Transformation matrix @ points as column vectors + offset
+            return (self.data_to_px_mat @ lin_data_pts.T).T + self.origin_px
+        else:
+            return np.empty((0, 2))
+
+    def px_to_data_coords(self, px_pts: np.ndarray) -> np.ndarray:
+        """Returns transformation of image pixel coordinates into
+        linear or linearized (in case of log axes) data coordinates.
+
+        Input points are assumed to be absolute, i.e. the pixel offset
+        of data axes origin is subtracted first.
+        
+        Input and output are 2D arrays of X and Y in rows.
+        """
+        if self.coordinate_transformation_defined():
+            pts_shifted = px_pts - self.origin_px
+            # Transformation matrix @ points as column vectors + offset
+            return (self.px_to_data_mat @ pts_shifted.T).T
+        else:
+            return np.empty((0, 2))
+
+    def pts_lin_i_px_coords(self, trace) -> np.ndarray:
+        """Returns graph interpolated points in (linear) pixel
+        coordinate system. Used for backplotting the interpolated points.
+        """
+        return self.data_to_px_coords(trace.pts_lin_i)
+
+    def px_from_data_bounds(self, x_min_max, y_min_max):
         if not self.axes_setup_is_complete():
             self.value_error.emit("You must configure both axes first!")
             return None
-        if self.x_ax.log_scale:
+        if self.x_ax._log_scale:
             if True in [i < self.atol for i in x_min_max]:
                 self.value_error.emit("Value must be greater 0 for log axes")
                 return None
             xmin, xmax = np.log((x_min_max)) / np.log(self.x_ax.log_base)
         else:
             xmin, xmax = x_min_max
-        if self.y_ax.log_scale:
+        if self.y_ax._log_scale:
             if True in [i < self.atol for i in y_min_max]:
                 self.value_error.emit("Value must be greater 0 for log axes")
                 return None
@@ -393,30 +448,8 @@ class DataModel(QObject):
         xmax_px, ymax_px = np.max(bbox_px, axis=0)
         return (xmin_px, xmax_px), (ymin_px, ymax_px)
 
-    def get_pts_lin_px_coords(self, trace) -> np.ndarray:
-        """Returns graph mouse selectd points in linearised pixel data
-        coordinate system. Used for backplotting the transformed points.
-        """
-        # Transformation matrix applied to points as column vectors, plus offset
-        return (self.data_to_px_mat @ trace.pts_lin.T).T + self.origin_px
-    
-    def get_pts_lin_i_px_coords(self, trace) -> np.ndarray:
-        """Returns graph interpolated points in linearised pixel data
-        coordinate system. Used for backplotting the interpolated points.
-        """
-        # Transformation matrix applied to points as column vectors, plus offset
-        return (self.data_to_px_mat @ trace.pts_lin_i.T).T + self.origin_px
 
-    ########## Persistent storage flag
-    @logExceptionSlot(bool)
-    def set_store_config(self, state):
-        """Sets flag to request axes configuration to be saved and restored
-        when the application is closed
-        """
-        self.store_ax_conf = state
-
-
-    ########## Model-specific implementation part
+    ########## Private methods
     def _calc_coordinate_transformation(self) -> None:
         """Calculates data axes origin point offset in pixel coordinates and
         the coordinate transformation matrix including axes scale.
@@ -443,12 +476,12 @@ class DataModel(QObject):
         # For logarithmic axes, their values are linearised.
         x_ax.pts_data_lin = (
                 np.log(x_ax.pts_data) / np.log(x_ax.log_base)
-                if x_ax.log_scale
+                if x_ax._log_scale
                 else x_ax.pts_data
                 )
         y_ax.pts_data_lin = (
                 np.log(y_ax.pts_data) / np.log(y_ax.log_base)
-                if y_ax.log_scale
+                if y_ax._log_scale
                 else y_ax.pts_data
                 )
         x_ax_data_near, x_ax_data_far = x_ax.pts_data_lin
@@ -531,11 +564,10 @@ class DataModel(QObject):
             if tr.pts_px.shape[0] == 0:
                 # If no points are set or if these have been deleted, reset
                 # model properties to initial values
-                tr.init_data()
+                tr._init_data()
             else:
                 # These calls do the heavy work
-                tr._px_to_linear_data_coords(
-                        self.px_to_data_mat, self.origin_px)
+                tr.pts_lin = self.px_to_data_coords(tr.pts_px)
                 tr._sort_pts()
                 # Anyways:
                 tr._interpolate_view_data()
@@ -568,7 +600,7 @@ class DataModel(QObject):
         x_end_lin_limit = min(tr_end_lin)
         # Anti-log treatment for X axis. This is not to be confused with log
         # scale export setting - these are independent.
-        if self.x_ax.log_scale:
+        if self.x_ax._log_scale:
             x_start_export_limit = self.x_ax.log_base ** x_start_lin_limit
             x_end_export_limit = self.x_ax.log_base ** x_end_lin_limit
         else:
@@ -665,15 +697,14 @@ class Trace(QObject):
         # Interpolation or output function currently selected
         self.post_processing = tr_conf.post_processing
         # Plot data initial state, see below
-        self.init_data()
+        self._init_data()
         ########## Associated view objects
         # For raw pts
         self.pts_view_obj = None # Optional: pyplot.Line2D
         # For pts_i curve
         self.pts_i_view_obj = None
 
-
-    def init_data(self):
+    def _init_data(self):
         ########## Plot data layout
         # Data containers are numpy.ndarrays initialised with zero length.
         #
@@ -710,25 +741,26 @@ class Trace(QObject):
 
     ########## GUI scope and public methods
     def clear_trace(self):
-        """Clears this trace
+        """Clears this trace and re-initialises with zero presets
         """
-        self.init_data()
+        self._init_data()
         # Trigger a full update of the model and view of inputs and outputs
         self.model._process_tr_input_data(self.trace_no)
         self.model.tr_input_data_changed[int].emit(self.trace_no)
 
     def add_pt_px(self, xydata) -> int:
         logger.debug(f"Call Trace.add_pt_px with data: {xydata}")
-        import pdb
-        pdb.set_trace()
         if self.pts_px.shape[0] > 0 and np.isnan(self.pts_px).any():
             # There are NaN values in at least one data point. Set these first.
             pt_index = np.isnan(self.pts_px).any(axis=1).nonzero()[0][0]
             self.pts_px[pt_index] = xydata
+            logger.warning(f"NaN value occurred in model!\n"
+                           f"Setting point at index {pt_index}")
         else:
             # Append new point with given coordinates
             self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
-            pt_index = self.pts_px.shape[0]
+            pt_index = self.pts_px.shape[0] - 1
+            logger.debug(f"Setting point at index {pt_index}")
         # Trigger a full update of the model and view of inputs and outputs
         if not self.model.axes_setup_is_complete():
             logger.warning("No live updates: Coordinate system not defined.")
@@ -741,7 +773,7 @@ class Trace(QObject):
         # Assuming this is called from the view only thus raw points need not
         # be redrawn
         self.pts_px[index] = xydata
-        # Update of the model outputs plus update of outputs view
+        # This emits a notify signal for the output data
         self.model._process_tr_input_data(self.trace_no)
 
     def delete_pt_px(self, index: int):
@@ -752,17 +784,6 @@ class Trace(QObject):
         self.model.tr_input_data_changed[int].emit(self.trace_no)
 
     ########## Model-specific implementation part
-    def _px_to_linear_data_coords(self, transform_matrix, origin_px) -> None:
-        # Transform image pixel coordinates to linear or
-        # linearized (in case of log axes) data coordinate system.
-        #
-        # Offset raw points by pixel coordinate offset of data axes origin.
-        # pts_px is array of x, y in rows.
-        pts_shifted = self.pts_px - origin_px
-        # Transform into data coodinates using pre-calculated matrix.
-        # T is a property alias for the numpy.ndarray.transpose method.
-        self.pts_lin = (transform_matrix @ pts_shifted.T).T
-
     def _sort_pts(self) -> None:
         # Sort trace points along the first axis and
         # remove duplicate rows.
@@ -772,12 +793,12 @@ class Trace(QObject):
         # indices are also used to sort the input points in the same
         # order as the output. That step is especially useful for plotting
         # when points are added out-of-order.
-#        self.pts_lin, unique_ids = np.unique(
-#                self.pts_lin, axis=0, return_index=True)
-#        self.pts_px = self.pts_px[unique_ids]
-        ids = np.argsort(self.pts_lin, axis=0)
-        self.pts_lin = self.pts_lin[ids]
-        self.pts_px = self.pts_px[ids]
+        self.pts_lin, unique_ids = np.unique(
+                self.pts_lin, axis=0, return_index=True)
+        self.pts_px = self.pts_px[unique_ids]
+#        ids = np.argsort(self.pts_lin, axis=0)
+#        self.pts_lin = self.pts_lin[ids]
+#        self.pts_px = self.pts_px[ids]
 
     def _interpolate_view_data(self) -> None:
         # Acts on linear coordinates.
@@ -815,8 +836,8 @@ class Trace(QObject):
         # Anyways, makes a copy to keep the original linearised coordinates.
         if self.f_interp_lin is None:
             return
-        if x_ax.log_scale:
-            if y_ax.log_scale:
+        if x_ax._log_scale:
+            if y_ax._log_scale:
                 ##### CASE 1: dual logarithmic scale
                 # Transform points Y coordinates back to log scale
                 self.pts = (x_ax.log_base, y_ax.log_base) ** self.pts_lin
@@ -836,7 +857,7 @@ class Trace(QObject):
                         np.log(x) / np.log(x_ax.log_base)
                         )
         else:
-            if y_ax.log_scale:
+            if y_ax._log_scale:
                 ##### CASE 3: Y axis only logarithmic scale
                 # Transform points Y coordinates back to log scale
                 self.pts = self.pts_lin.copy()
@@ -848,7 +869,7 @@ class Trace(QObject):
                 self.pts = self.pts_lin.copy()
                 self.f_interp = self.f_interp_lin
 
-    def __repr__(self):
+    def __str__(self):
         return self.name
 
 
@@ -868,7 +889,6 @@ class Axis(QObject):
         self.name = name
         # Keyword options for point markers.
         self.pts_fmt = ax_conf.pts_fmt
-        self.log_scale = ax_conf.log_scale
         self.log_base = ax_conf.log_base
         self.atol = ax_conf.atol
 
@@ -882,40 +902,47 @@ class Axis(QObject):
 
         ########## Associated view object
         self.pts_view_obj = None # Optional: pyplot.Line2D
- 
-    # Check if this axis setup is complete and valid
-    def is_complete(self) -> bool:
-        pts_px = self.pts_px
-        if (    isnan(pts_px).any()
-                or isnan(self.pts_data).any()
-                or  self.log_scale
-                    and isclose(self.pts_data, 0.0, atol=self.atol).any()
-                ):
-            #logger.debug("ax.is_complete returns: False")
-            return False
-        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
-        if isclose(pts_distance, 0.0, atol=self.atol):
-            #logger.debug("ax.is_complete returns: False")
-            return False
-        #logger.debug("ax.is_complete returns: True")
-        return True
 
-    # Check if axis section has nonzero length
+        ########## Private properties
+        # These flags are updated when the respective attr setters are called
+        self._valid_pts_px = False
+        self._valid_pts_data = False
+        self._log_scale = ax_conf.log_scale
+ 
+    def is_complete(self) -> bool:
+        """Returns True if axis setup is all complete and valid"""
+        return self._valid_pts_data and self._valid_pts_px
+
     def valid_pts_px(self) -> bool:
-        pts_px = self.pts_px
-        if isnan(pts_px).any():
-            return False
-        pts_distance = np.linalg.norm(pts_px[1] - pts_px[0])
-        if isclose(pts_distance, 0.0, atol=self.atol):
-            return False
-        return True
+        """Returns True if axis section has both points set
+        and points distance is nonzero length
+        """
+        return self._valid_pts_px
+    
+    def valid_pts_data(self) -> bool:
+        """Returns True if the data coordinate points defining the axis
+        section are both set and valid (i.e. not zero for log axes)
+        """
+        return self._valid_pts_data
+    
+    def log_scale(self) -> bool:
+        """Returns True if this axis data space scale is logarithmic
+        """
+        return self._log_scale
 
     @logExceptionSlot(float)
     def set_ax_start(self, value):
+        """Set the data coordinate space value defining the start of
+        the axis section corresponding with the first of two pixel
+        coordinate points defining the same axis section in pixel space
+        
+        For invalid data, an error signal is emitted and model is left
+        untouched.
+        """
         # Prevent recursive calls and unnecessary updates
         if isclose(self.pts_data[0], value, atol=self.atol):
             return
-        if self.log_scale and isclose(value, 0.0, atol=self.atol):
+        if self._log_scale and isclose(value, 0.0, atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
         elif isclose(value, self.pts_data[1], atol=self.atol):
@@ -923,15 +950,23 @@ class Axis(QObject):
                     "X axis values must be numerically different")
         else:
             self.pts_data[0] = value
+            self._valid_pts_data = not isnan(self.pts_data).any()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
 
     @logExceptionSlot(float)
     def set_ax_end(self, value):
+        """Set the data coordinate space value defining the end of
+        the axis section corresponding with the second of two pixel
+        coordinate points defining the same axis section in pixel space
+        
+        For invalid data, an error signal is emitted and model is left
+        untouched.
+        """
         # Prevent recursive calls and unnecessary updates
         if isclose(self.pts_data[1], value, atol=self.atol):
             return
-        if self.log_scale and isclose(value, 0.0, atol=self.atol):
+        if self._log_scale and isclose(value, 0.0, atol=self.atol):
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
         elif isclose(value, self.pts_data[0], atol=self.atol):
@@ -939,22 +974,28 @@ class Axis(QObject):
                     "X axis values must be numerically different")
         else:
             self.pts_data[1] = value
+            self._valid_pts_data = not isnan(self.pts_data).any()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
 
     @logExceptionSlot(bool)
     def set_log_scale(self, state=True):
+        """Sets logarithmic scale data coordinates for this axis.
+                
+        For invalid data, an error signal is emitted and model is left
+        untouched.
+        """
         logger.debug(f"set_log_state called with state: {state}")
         # Prevent recursive or duplicate calls
-        if state == self.log_scale:
+        if state == self._log_scale:
             return
         # Prevent setting logarithmic scale when axes values contain zero
         if state and isclose(self.pts_data, 0.0, atol=self.atol).any():
-            self.log_scale = False
+            self._log_scale = False
             self.model.value_error.emit(
                     "X axis values must not be zero for log axes")
         else:
-            self.log_scale = state
+            self._log_scale = state
         self.model.ax_input_data_changed.emit()
 
     def add_pt_px(self, xydata) -> int:
@@ -974,24 +1015,24 @@ class Axis(QObject):
         would yield a zero-length axis section.
         """
         logger.debug(f"add_pt_px called with xy data: {xydata}")
-        pts_px = self.pts_px
         # Results are each True when point is unset..
-        unset_1st, unset_2nd = isnan(pts_px).any(axis=1)
+        unset_1st, unset_2nd = isnan(self.pts_px).any(axis=1)
         index = 0
         if not unset_1st and not unset_2nd:
             # Both points set. Invalidate second point, so that it will be set
             # in next call. NaN values make matplotlib not plot this point.
-            pts_px[1] = np.full(2, NaN)
+            self.pts_px[1] = np.full(2, NaN)
         elif not unset_1st or not unset_2nd:
             # Only one point is still unset. (Both not set was covered above)
             # Set index to the remaining unset point:
             if unset_2nd:
                 index = 1
             # else index is still 0
-        pts_distance = np.linalg.norm(pts_px[index-1] - xydata)
+        pts_distance = np.linalg.norm(self.pts_px[index-1] - xydata)
         if isclose(pts_distance, 0.0, atol=self.atol):
             return index
-        pts_px[index] = xydata
+        self.pts_px[index] = xydata
+        self._valid_pts_px = not isnan(self.pts_px).any()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
         return index
@@ -1006,13 +1047,15 @@ class Axis(QObject):
         if isclose(pts_distance, 0.0, atol=self.atol):
             return
         self.pts_px[index] = xydata
+        self._valid_pts_px = not isnan(self.pts_px).any()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
 
     def delete_pt_px(self, index: int):
-        """Delete axis point in pixel coordinates 
+        """Delete axis point in pixel coordinates and invalidates state
         """
         self.pts_px[index] = np.full(2, NaN)
+        self._valid_pts_px = False
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
 
@@ -1024,7 +1067,7 @@ class Axis(QObject):
         del state["pts_view_obj"], state["model"]
         return state
     
-    def __repr__(self):
+    def __str__(self):
         return self.name
 
 
