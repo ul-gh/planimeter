@@ -80,7 +80,7 @@ class MplWidget(QWidget):
         # All Lines2D objects that have to be redrawn on model updates
         self._blit_view_objs = []
         # Flag indicating if a full redraw is needed
-        self._blit_bg_stale = True
+        self._blit_buffer_stale = True
 
         ########## Matplotlib figure and axes setup
         self.fig = matplotlib.figure.Figure()
@@ -274,7 +274,7 @@ class MplWidget(QWidget):
     @logExceptionSlot(bool)
     def set_mode_setup_x_axis(self, state=True):
         if state:
-            self._blit_bg_stale = True
+            self._blit_buffer_stale = True
             self.set_mode(self.MODE_SETUP_X_AXIS)
         else:            
             self.set_mode(self.MODE_DEFAULT)
@@ -299,16 +299,14 @@ class MplWidget(QWidget):
     #          Each called from self.set_mode()
     def _enter_mode_setup_x_axis(self):
         logger.info("Pick X axis points!")
-        self._blit_bg_stale = True
+        self._blit_buffer_stale = True
         # Assuming the cursor is outside the figure anyways,initialise with NaN
         self._add_and_pick_point(self.model.x_ax, np.full(2, NaN))
-        self._blit_bg_stale = False
 
     def _enter_mode_setup_y_axis(self):
         logger.info("Pick Y axis points!")
-        self._blit_bg_stale = True
+        self._blit_buffer_stale = True
         self._add_and_pick_point(self.model.y_ax, np.full(2, NaN))
-        self._blit_bg_stale = False
 
     def _enter_mode_add_trace_pts(self):
         if not self.model.axes_setup_is_complete():
@@ -317,7 +315,7 @@ class MplWidget(QWidget):
             self.digitizer.show_text(text)
             self.set_mode(self.MODE_DEFAULT)
             return
-        self._blit_bg_stale = True
+        self._blit_buffer_stale = True
         trace = self.model.traces[self.curr_trace_no]
         # If trace points have already been selected, ask whether to
         # delete them first before adding new points.
@@ -326,27 +324,15 @@ class MplWidget(QWidget):
             trace.clear_trace()
         logger.info(f"Add points mode for trace {self.curr_trace_no + 1}!")
         self._add_and_pick_point(trace, np.full(2, NaN))
-        self._blit_bg_stale = False
 
     def _enter_mode_drag_obj(self):
         logger.info("Drag the picked object!")
-        # Further select ependent objects for operation the blitting function
-        if isinstance(self._picked_obj_submodel, Trace):
-            self.curr_trace_no = self._picked_obj_submodel.trace_no
-            self._blit_redraw_objs = [self._picked_obj_submodel.pts_view_obj,
-                                      self._picked_obj_submodel.pts_i_view_obj]
-        elif isinstance(self._picked_obj_submodel, Axis):
-            # Changing axes points changes all traces.
-            # We need to capture all traces.
-            self.update_model_view_traces()
-            self._blit_redraw_objs = self._ax_view_objs + self._tr_view_objs
-        else:
-            self._blit_redraw_objs = [self._picked_obj]
+
         # Actual movement happens in mouse motion notify event handler
 
     def _enter_mode_default(self):
         logger.info("Switching back to default mode")
-        self._blit_bg_stale = True
+        self._blit_buffer_stale = True
         self._picked_obj = None
 
     # Adds point to model, causes a model-view update and sets picked obj
@@ -475,15 +461,28 @@ class MplWidget(QWidget):
     # by capturing the canvas background excluding selected view objects.
     # For this, selected objs are temporarily disabled and canvas is redrawn.
     def _capture_objs_background(self):
+        if self._op_mode == self.MODE_DRAG_OBJ:
+            if isinstance(self._picked_obj_submodel, Trace):
+                self.curr_trace_no = self._picked_obj_submodel.trace_no
+                self._blit_view_objs = [
+                        self._picked_obj_submodel.pts_view_obj,
+                        self._picked_obj_submodel.pts_i_view_obj]
+            elif isinstance(self._picked_obj_submodel, Axis):
+                # Changing axes points changes all traces.
+                # We need to capture all traces.
+                self._blit_view_objs = self._view_model_map.keys()
+            else:
+                self._blit_redraw_objs = [self._picked_obj]
         for obj in self._blit_view_objs:
             obj.set_visible(False)
         self.canvas_qt.draw()
         self._blit_bg = self.canvas_qt.copy_from_bbox(self.mpl_ax.bbox)
         for obj in self._blit_view_objs:
             obj.set_visible(True)
+        self._blit_buffer_stale = False
 
     def _do_blit_redraw(self):
-        if self._blit_bg_stale:
+        if self._blit_buffer_stale:
             self._capture_objs_background()
         # Restores captured object background
         self.canvas_qt.restore_region(self._blit_bg)
