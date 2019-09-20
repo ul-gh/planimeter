@@ -76,7 +76,7 @@ class MplWidget(QWidget):
         # Model component with view associated data for a mouse-picked object
         self._picked_obj_submodel = None
         # Index of a single picked point inside the view object
-        self._picked_obj_index = 0
+        self._picked_obj_pt_index = 0
         # All Lines2D objects that have to be redrawn on model updates
         self._blit_view_objs = []
         # Flag indicating if a full redraw is needed
@@ -156,7 +156,7 @@ class MplWidget(QWidget):
                         *model.origin_px, **model.origin_fmt)
                 # The origin point is calculated and not supposed to be
                 # subjected to drag-and-drop etc.: registering it as None
-                self._view_model_map[model.origin_view_obj] = None
+                self._view_model_map[model.origin_view_obj] = model.origin_view_obj
             else:
                 model.origin_view_obj.set_data(*model.origin_px)
             model.origin_view_obj.set_label("Data Axes Origin")
@@ -193,9 +193,7 @@ class MplWidget(QWidget):
             if tr.pts_i_view_obj is None:
                 # Draw trace on matplotlib widget
                 tr.pts_i_view_obj, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
-                # The origin point is calculated and not supposed to be
-                # subjected to drag-and-drop etc.: registering it as None
-                self._view_model_map[tr.pts_i_view_obj] = None
+                self._view_model_map[tr.pts_i_view_obj] = tr.pts_i_view_obj
             else:
                 # Trace handle for pts_lin_i exists. Update data.
                 tr.pts_i_view_obj.set_data(*pts_i_px.T)
@@ -238,7 +236,9 @@ class MplWidget(QWidget):
         #self.update_model_view_axes()
         #self.update_model_view_traces()
         self.canvas_rescaled.emit(self._op_mode)
-        self.model.ax_input_data_changed.emit()
+        self.update_model_view_axes()
+        self._blit_buffer_stale = True
+        self.update_model_view_traces()
 
 
     ########## Data Output Methods
@@ -327,7 +327,6 @@ class MplWidget(QWidget):
 
     def _enter_mode_drag_obj(self):
         logger.info("Drag the picked object!")
-
         # Actual movement happens in mouse motion notify event handler
 
     def _enter_mode_default(self):
@@ -337,8 +336,10 @@ class MplWidget(QWidget):
 
     # Adds point to model, causes a model-view update and sets picked obj
     def _add_and_pick_point(self, submodel, px_xy):
+        print("_add_and_pick_point called with submodel", submodel.name, "data: ", px_xy)
+        print("Before: pts_px has data: ", submodel.pts_px)
         # The model returns an array index for the point inside the trace.
-        self._picked_obj_index = submodel.add_pt_px(px_xy)
+        self._picked_obj_pt_index = submodel.add_pt_px(px_xy)
         self._picked_obj = submodel.pts_view_obj
         self._picked_obj_submodel = submodel
 
@@ -415,19 +416,27 @@ class MplWidget(QWidget):
         if self._op_mode != self.MODE_DEFAULT:
             return
         picked_obj = event.artist
-        # Model components with view associated data for each picked object
-        # are looked up from the view-model mapping.
-        picked_obj_submodel = self._view_model_map[picked_obj]
-        # For non-mouse-pickable view objects, a None is stored in the mapping
-        if picked_obj_submodel not in self._view_model_map:
-            # Not found in mapping, view object is thus not mouse-pickable
+        if picked_obj in self._view_model_map:
+            # Model components with view associated data for each picked object
+            # are looked up from the view-model mapping.
+            picked_obj_submodel = self._view_model_map[picked_obj]
+            if isinstance(picked_obj_submodel, Trace):
+                self.trace_no = picked_obj_submodel.trace_no
+                if picked_obj is picked_obj_submodel.pts_i_view_obj:
+                    # The interpolated lines are not draggable
+                    return
+            elif not isinstance(picked_obj_submodel, Axis):
+                # The origin point is in the mapping but not pickable
+                return
+        else:
+            # Not found in mapping, view object does not belong here
             return
         # Object is pickable: Set instance attributes to select them
         self._picked_obj = picked_obj
-        self._picked_obj_index = event.ind[0] if hasattr(event, "ind") else None
+        self._picked_obj_pt_index = event.ind - 1
         self._picked_obj_submodel = picked_obj_submodel
         logger.debug(f"Picked object: {self._picked_obj}")
-        logger.debug(f"Picked object index: {self._picked_obj_index}")
+        logger.debug(f"Picked object index: {self._picked_obj_pt_index}")
         logger.debug(f"Picked from model: {self._picked_obj_submodel.name}")
         # Actual movement/dragging of objects occurs in motion notify handler
         self.set_mode(self.MODE_DRAG_OBJ)
@@ -443,9 +452,10 @@ class MplWidget(QWidget):
         if None in xydata:
             return
         if self._picked_obj is not None:
-            index = self._picked_obj_index
+            index = self._picked_obj_pt_index
             if index is not None:
-                # Move normal points
+                # Move normal points, but first only in view.
+                # Otherwise, the points would be sorted out 
                 self._picked_obj_submodel.update_pt_px(xydata, index)
             else:
                 # FIXME: Not implemented, move polygons along X etc.
@@ -463,7 +473,6 @@ class MplWidget(QWidget):
     def _capture_objs_background(self):
         if self._op_mode == self.MODE_DRAG_OBJ:
             if isinstance(self._picked_obj_submodel, Trace):
-                self.curr_trace_no = self._picked_obj_submodel.trace_no
                 self._blit_view_objs = [
                         self._picked_obj_submodel.pts_view_obj,
                         self._picked_obj_submodel.pts_i_view_obj]
@@ -472,7 +481,9 @@ class MplWidget(QWidget):
                 # We need to capture all traces.
                 self._blit_view_objs = self._view_model_map.keys()
             else:
-                self._blit_redraw_objs = [self._picked_obj]
+                self._blit_view_objs = [self._picked_obj]
+        else:
+            self._blit_view_objs = self._view_model_map.keys()
         for obj in self._blit_view_objs:
             obj.set_visible(False)
         self.canvas_qt.draw()

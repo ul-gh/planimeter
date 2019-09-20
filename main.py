@@ -132,8 +132,8 @@ class MainWindow(QMainWindow):
             logger.info("Storing axis configuration to disk..")
             self.conf.model_conf.store_ax_conf = True
             # Getting plot configuration from Digitizer widget:
-            self.conf.x_ax_state = self.cw.model.x_ax.get_state()
-            self.conf.y_ax_state = self.cw.model.y_ax.get_state()
+            self.conf.x_ax_state = self.cw.model.x_ax.restorable_state()
+            self.conf.y_ax_state = self.cw.model.y_ax.restorable_state()
         else:
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None

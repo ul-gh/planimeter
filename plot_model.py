@@ -568,7 +568,7 @@ class DataModel(QObject):
             else:
                 # These calls do the heavy work
                 tr.pts_lin = self.px_to_data_coords(tr.pts_px)
-                tr._sort_pts()
+                # tr._sort_pts()
                 # Anyways:
                 tr._interpolate_view_data()
                 tr._handle_log_scale(self.x_ax, self.y_ax)
@@ -805,14 +805,18 @@ class Trace(QObject):
         pts = self.pts_lin
         if pts.shape[0] < 4:
             return
-        # Scipy interpolate generates an interpolation function which is added
-        # to this instance attriutes
-        self.f_interp_lin = interp1d(
-                *pts.T,
-                kind=self.interp_type,
-                fill_value="extrapolate",
-                assume_sorted=True,
-                )
+        try:
+            # Scipy interpolate generates an interpolation function which is added
+            # to this instance attriutes
+            self.f_interp_lin = interp1d(
+                    *pts.T,
+                    kind=self.interp_type,
+                    fill_value="extrapolate",
+                    assume_sorted=True,
+                    )
+        except Exception:
+            print("Interpolation exception")
+            pass
         # Generate finer grid
         xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
         yvals = self.f_interp_lin(xgrid)
@@ -925,7 +929,7 @@ class Axis(QObject):
         return self._valid_pts_data
 
     # Returns axis configuration as a dictionary used for persistent storage.
-    def restorableable_state(self) -> dict:
+    def restorable_state(self) -> dict:
         state = vars(self).copy()
         # The view object belongs to the view component and cannot be restored
         # into a new context.
