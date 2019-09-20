@@ -185,30 +185,27 @@ class MplWidget(QWidget):
         ########## Update interpolated trace if available
         for tr in traces:
             ##### STEP A: Draw or update raw pixel points
-            view_obj = tr.pts_view_obj
-            if view_obj is None:
-                view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
-                self._view_model_map[view_obj] = tr
+            if tr.pts_view_obj is None:
+                tr.pts_view_obj, = self.mpl_ax.plot(*tr.pts_px.T, **tr.pts_fmt)
+                self._view_model_map[tr.pts_view_obj] = tr
             else:
-                view_obj.set_data(*tr.pts_px.T)
-            view_obj.set_label(f"Raw Points for {tr.name}")
-            tr_view_objs.append(view_obj)
+                tr.pts_view_obj.set_data(*tr.pts_px.T)
+            tr.pts_view_obj.set_label(f"Raw Points for {tr.name}")
+            tr_view_objs.append(tr.pts_view_obj)
             ##### STEP B: Draw or update interpolated pixel points
             # Backtransform trace to pixel data coordinate system
             pts_i_px = model.pts_lin_i_px_coords(tr)
-            view_obj = tr.pts_i_view_obj
-            if view_obj is None:
+            if tr.pts_i_view_obj is None:
                 # Draw trace on matplotlib widget
-                view_obj, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
+                tr.pts_i_view_obj, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
                 # The origin point is calculated and not supposed to be
                 # subjected to drag-and-drop etc.: registering it as None
-                self._view_model_map[view_obj] = None
-                tr.pts_i_view_obj = view_obj
+                self._view_model_map[tr.pts_i_view_obj] = None
             else:
                 # Trace handle for pts_lin_i exists. Update data.
-                view_obj.set_data(*pts_i_px.T)
-            view_obj.set_label(f"Interpolated Points for {tr.name}")
-            tr_view_objs.append(view_obj)
+                tr.pts_i_view_obj.set_data(*pts_i_px.T)
+            tr.pts_i_view_obj.set_label(f"Interpolated Points for {tr.name}")
+            tr_view_objs.append(tr.pts_i_view_obj)
         ##### Redraw traces view objects
         # For modes other than MODE_DEFAULT, background was captured before,
         # otherwise we need to do the blitting capture here
@@ -459,7 +456,7 @@ class MplWidget(QWidget):
         # Cursor outside of canvas returns none coordiantes, these are ignored
         if None in xydata:
             return
-        if self.picked_obj is not None:
+        if self._picked_obj is not None:
             index = self._picked_obj_index
             if index is not None:
                 # Move normal points
