@@ -750,22 +750,22 @@ class Trace(QObject):
         self.model._process_tr_input_data(self.trace_no)
         self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-    def add_pt_px(self, xydata: Iterable[float]) -> int:
+    def add_pt_px(self, xy_px: Iterable[float]) -> int:
         """Add a point in pixel coordinates to the trace.
         
         This triggers a sorting of the points along the (transformed)
         data coordinate axis as well as a model and view update.
         """
-        logger.debug(f"Call Trace.add_pt_px with data: {xydata}")
+        logger.debug(f"Call Trace.add_pt_px with data: {xy_px}")
         if self.pts_px.shape[0] > 0 and np.isnan(self.pts_px).any():
             # There are NaN values in at least one data point. Set these first.
             pt_index = np.isnan(self.pts_px).any(axis=1).nonzero()[0][0]
-            self.pts_px[pt_index] = xydata
+            self.pts_px[pt_index] = xy_px
             logger.warning(f"NaN value occurred in model!\n"
                            f"Setting point at index {pt_index}")
         else:
             # Append new point with given coordinates
-            self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
+            self.pts_px = np.concatenate((self.pts_px, (xy_px,)), axis=0)
         # Trigger a full update of the model and view of inputs and outputs
         if not self.model.axes_setup_is_complete():
             logger.warning("No live updates: Coordinate system not defined.")
@@ -777,12 +777,18 @@ class Trace(QObject):
         self.model.tr_input_data_changed[int].emit(self.trace_no)
         return pt_index
 
-    def update_pt_px(self, xydata: Iterable[float], index: int):
-        """Moves a point to the specified position in pixel coordinates
+    def update_pt_px(self, xy_px: Iterable[float], index: int):
+        """Moves a point to the specified position in pixel coordinates.
+        
+        Moves only if this does not result in duplicate points,
+        otherwise, no action takes place.
         """
-        self.pts_px[index] = xydata
-        # This emits a notify signal for the output data
-        self.model._process_tr_input_data(self.trace_no)
+        xy_data = self.model.px_to_data_coords(xy_px)
+        if not isclose(
+                xy_data[0], self.pts_lin[:,0], atol=self.model.atol).any():
+            self.pts_px[index] = xy_px
+            # This emits a notify signal for the output data
+            self.model._process_tr_input_data(self.trace_no)
 
     def delete_pt_px(self, index: int):
         logger.debug(f"Call Trace.delete_pt_px with index: {index}")
@@ -1030,10 +1036,10 @@ class Axis(QObject):
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
 
-    def add_pt_px(self, xydata: Iterable[float]) -> int:
+    def add_pt_px(self, xy_px: Iterable[float]) -> int:
         """Add a point defining an axis section
 
-        xydata: (x, y)-tuple or np.array shape (2, )
+        xy_px: (x, y)-tuple or np.array shape (2, )
 
         Returns index of newly added point, which is determined
         automatically.
@@ -1046,7 +1052,7 @@ class Axis(QObject):
         Leaves model silently untouched if input data
         would yield a zero-length axis section.
         """
-        logger.debug(f"add_pt_px called with xy data: {xydata}")
+        logger.debug(f"add_pt_px called with xy data: {xy_px}")
         # Results are each True when point is unset..
         unset_1st, unset_2nd = isnan(self.pts_px).any(axis=1)
         index = 0
@@ -1060,25 +1066,25 @@ class Axis(QObject):
             if unset_2nd:
                 index = 1
             # else index is still 0
-        pts_distance = np.linalg.norm(self.pts_px[index-1] - xydata)
+        pts_distance = np.linalg.norm(self.pts_px[index-1] - xy_px)
         if isclose(pts_distance, 0.0, atol=self.atol):
             return index
-        self.pts_px[index] = xydata
+        self.pts_px[index] = xy_px
         self._valid_pts_px = not isnan(self.pts_px).any()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
         return index
 
-    def update_pt_px(self, xydata: Iterable[float], index: int):
+    def update_pt_px(self, xy_px: Iterable[float], index: int):
         """Update axis point in pixel coordinates 
 
         Leaves model silently untouched if input data
         would yield a zero-length axis section.
         """
-        pts_distance = np.linalg.norm(self.pts_px[index-1] - xydata)
+        pts_distance = np.linalg.norm(self.pts_px[index-1] - xy_px)
         if isclose(pts_distance, 0.0, atol=self.atol):
             return
-        self.pts_px[index] = xydata
+        self.pts_px[index] = xy_px
         self._valid_pts_px = not isnan(self.pts_px).any()
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()

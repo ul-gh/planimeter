@@ -418,7 +418,7 @@ class MplWidget(QWidget):
         if self._op_mode == self.MODE_ADD_TRACE_PTS:
             trace = model.traces[self.curr_trace_no]
             # Add new point to the model at current mouse coordinates
-            self._add_and_pick_point(trace, px_xy)
+            self._add_and_pick_point(trace, np.full(2, NaN))
             return
         return
 
@@ -467,8 +467,7 @@ class MplWidget(QWidget):
         if self._picked_obj is not None:
             index = self._picked_obj_pt_index
             if index is not None:
-                # Move normal points, but first only in view.
-                # Otherwise, the points would be sorted out
+                # Move selected point
                 self._picked_obj_submodel.update_pt_px(xy_px, index)
             else:
                 # FIXME: Not implemented, move polygons along X etc.
