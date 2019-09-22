@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 
 from functools import partial
 
+from typing import Iterable
+
 import numpy as np
 from numpy import NaN, isnan, isclose
 from scipy.interpolate import interp1d
@@ -549,7 +551,7 @@ class DataModel(QObject):
 
     @logExceptionSlot()
     @logExceptionSlot(int)
-    def _process_tr_input_data(self, trace_no=None):
+    def _process_tr_input_data(self, trace_no=None, sorting_needed=False):
         """Performs coordinate transformation, sorting, interpolation 
         and linearisation of log axes on the data model.
         """
@@ -568,8 +570,9 @@ class DataModel(QObject):
             else:
                 # These calls do the heavy work
                 tr.pts_lin = self.px_to_data_coords(tr.pts_px)
-                # tr._sort_pts()
                 # Anyways:
+                if sorting_needed:
+                    tr._sort_pts()
                 tr._interpolate_view_data()
                 tr._handle_log_scale(self.x_ax, self.y_ax)
         # What the name says..
@@ -747,7 +750,12 @@ class Trace(QObject):
         self.model._process_tr_input_data(self.trace_no)
         self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-    def add_pt_px(self, xydata) -> int:
+    def add_pt_px(self, xydata: Iterable[float]) -> int:
+        """Add a point in pixel coordinates to the trace.
+        
+        This triggers a sorting of the points along the (transformed)
+        data coordinate axis as well as a model and view update.
+        """
         logger.debug(f"Call Trace.add_pt_px with data: {xydata}")
         if self.pts_px.shape[0] > 0 and np.isnan(self.pts_px).any():
             # There are NaN values in at least one data point. Set these first.
@@ -758,19 +766,20 @@ class Trace(QObject):
         else:
             # Append new point with given coordinates
             self.pts_px = np.concatenate((self.pts_px, (xydata,)), axis=0)
-            pt_index = self.pts_px.shape[0] - 1
-            logger.debug(f"Setting point at index {pt_index}")
         # Trigger a full update of the model and view of inputs and outputs
         if not self.model.axes_setup_is_complete():
             logger.warning("No live updates: Coordinate system not defined.")
-            return
-        self.model._process_tr_input_data(self.trace_no)
+            return self.pts_px.shape[0] - 1
+        # Sorting also puts NaN values at the end
+        self.model._process_tr_input_data(self.trace_no, sorting_needed=True)
+        pt_index = self.pts_px.shape[0] - 1
+        logger.debug(f"Setting point at index {pt_index}")
         self.model.tr_input_data_changed[int].emit(self.trace_no)
         return pt_index
 
-    def update_pt_px(self, xydata, index: int):
-        # Assuming this is called from the view only thus raw points need not
-        # be redrawn
+    def update_pt_px(self, xydata: Iterable[float], index: int):
+        """Moves a point to the specified position in pixel coordinates
+        """
         self.pts_px[index] = xydata
         # This emits a notify signal for the output data
         self.model._process_tr_input_data(self.trace_no)
@@ -782,22 +791,32 @@ class Trace(QObject):
         self.model._process_tr_input_data(self.trace_no)
         self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-
     def _sort_pts(self) -> None:
+        # Sort trace points along the first axis.
+        #
+        # This sorts raw pixel space input points in the order as
+        # they correspond to the sorted data space points.
+        if self.pts_lin.shape != self.pts_px.shape:
+            logger.critical("Sorting error: Array shape is not compatible")
+            return
+        ids = np.argsort(self.pts_lin[:,0])
+        logger.debug(f"Sorting IDs: {ids}")
+        self.pts_lin = self.pts_lin[ids]
+        self.pts_px = self.pts_px[ids]
+
+    def _sort_remove_duplicate_pts(self) -> None:
         # Sort trace points along the first axis and
         # remove duplicate rows.
         #
-        # Because the orientation of the data coordinate system in pixel
-        # coordinates is also first known after transformation, the sort
-        # indices are also used to sort the input points in the same
-        # order as the output. That step is especially useful for plotting
-        # when points are added out-of-order.
+        # This sorts raw pixel space input points in the order as
+        # they correspond to the sorted data space points.
+        if self.pts_lin.shape != self.pts_px.shape:
+            logger.critical("Sorting error: Array shape is not compatible")
+            return
         self.pts_lin, unique_ids = np.unique(
                 self.pts_lin, axis=0, return_index=True)
         self.pts_px = self.pts_px[unique_ids]
-#        ids = np.argsort(self.pts_lin, axis=0)
-#        self.pts_lin = self.pts_lin[ids]
-#        self.pts_px = self.pts_px[ids]
+        logger.debug(f"UNIQUE IDs: {unique_ids}")
 
     def _interpolate_view_data(self) -> None:
         # Acts on linear coordinates.
@@ -814,16 +833,18 @@ class Trace(QObject):
                     fill_value="extrapolate",
                     assume_sorted=True,
                     )
-        except Exception:
+            # Generate finer grid
+            xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
+            yvals = self.f_interp_lin(xgrid)
+            self.pts_lin_i = np.concatenate(
+                    (xgrid.reshape(-1, 1), yvals.reshape(-1, 1)),
+                    axis=1
+                    )
+            #self._interpolation_valid = True
+        except ValueError:
+            #self._interpolation_valid = False
             print("Interpolation exception")
             pass
-        # Generate finer grid
-        xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
-        yvals = self.f_interp_lin(xgrid)
-        self.pts_lin_i = np.concatenate(
-                (xgrid.reshape(-1, 1), yvals.reshape(-1, 1)),
-                axis=1
-                )
 
 
     def _handle_log_scale(self, x_ax, y_ax) -> None:
@@ -962,7 +983,7 @@ class Axis(QObject):
 
 
     @logExceptionSlot(float)
-    def set_ax_start(self, value):
+    def set_ax_start(self, value: float):
         """Set the data coordinate space value defining the start of
         the axis section corresponding with the first of two pixel
         coordinate points defining the same axis section in pixel space
@@ -986,7 +1007,7 @@ class Axis(QObject):
         self.model.ax_input_data_changed.emit()
 
     @logExceptionSlot(float)
-    def set_ax_end(self, value):
+    def set_ax_end(self, value: float):
         """Set the data coordinate space value defining the end of
         the axis section corresponding with the second of two pixel
         coordinate points defining the same axis section in pixel space
@@ -1009,7 +1030,7 @@ class Axis(QObject):
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_input_data_changed.emit()
 
-    def add_pt_px(self, xydata) -> int:
+    def add_pt_px(self, xydata: Iterable[float]) -> int:
         """Add a point defining an axis section
 
         xydata: (x, y)-tuple or np.array shape (2, )
@@ -1048,7 +1069,7 @@ class Axis(QObject):
         self.model.ax_input_data_changed.emit()
         return index
 
-    def update_pt_px(self, xydata, index: int):
+    def update_pt_px(self, xydata: Iterable[float], index: int):
         """Update axis point in pixel coordinates 
 
         Leaves model silently untouched if input data

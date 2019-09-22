@@ -259,19 +259,20 @@ class MplWidget(QWidget):
         if new_mode == self._op_mode:
             return
         logger.debug(f"Entering new operation mode: {new_mode}.")
+        previous_mode = self._op_mode
         self._op_mode = new_mode
         # Call hanlers setting up each operation mode
         if new_mode == self.MODE_SETUP_X_AXIS:
-            self._enter_mode_setup_x_axis()
+            self._enter_mode_setup_x_axis(previous_mode)
         elif new_mode == self.MODE_SETUP_Y_AXIS:
-            self._enter_mode_setup_y_axis()
+            self._enter_mode_setup_y_axis(previous_mode)
         elif new_mode == self.MODE_ADD_TRACE_PTS:
-            self._enter_mode_add_trace_pts()
+            self._enter_mode_add_trace_pts(previous_mode)
         elif new_mode == self.MODE_DRAG_OBJ:
-            self._enter_mode_drag_obj()
+            self._enter_mode_drag_obj(previous_mode)
         else:
             self._op_mode = self.MODE_DEFAULT
-            self._enter_mode_default()
+            self._enter_mode_default(previous_mode)
         self.mode_sw.emit(self._op_mode)
 
     @logExceptionSlot(bool)
@@ -300,18 +301,18 @@ class MplWidget(QWidget):
 
     ##### Handlers performing the operation mode transitions
     #          Each called from self.set_mode()
-    def _enter_mode_setup_x_axis(self):
+    def _enter_mode_setup_x_axis(self, previous_mode):
         logger.info("Pick X axis points!")
         self._blit_buffer_stale = True
         # Assuming the cursor is outside the figure anyways,initialise with NaN
         self._add_and_pick_point(self.model.x_ax, np.full(2, NaN))
 
-    def _enter_mode_setup_y_axis(self):
+    def _enter_mode_setup_y_axis(self, previous_mode):
         logger.info("Pick Y axis points!")
         self._blit_buffer_stale = True
         self._add_and_pick_point(self.model.y_ax, np.full(2, NaN))
 
-    def _enter_mode_add_trace_pts(self):
+    def _enter_mode_add_trace_pts(self, previous_mode):
         if not self.model.axes_setup_is_complete():
             text = "You must configure the axes first!"
             logger.info(text)
@@ -328,19 +329,25 @@ class MplWidget(QWidget):
         logger.info(f"Add points mode for trace {self.curr_trace_no + 1}!")
         self._add_and_pick_point(trace, np.full(2, NaN))
 
-    def _enter_mode_drag_obj(self):
+    def _enter_mode_drag_obj(self, previous_mode):
         logger.info("Drag the picked object!")
         # Actual movement happens in mouse motion notify event handler
 
-    def _enter_mode_default(self):
+    def _enter_mode_default(self, previous_mode):
         logger.info("Switching back to default mode")
+        if previous_mode == self.MODE_ADD_TRACE_PTS:
+            # When hitting a button to exit trace points add mode, the last
+            # selected point is likely not supposed to be included
+            trace = self.model.traces[self.curr_trace_no]
+            trace.delete_pt_px(trace.pts_px.shape[0] - 1)
         self._blit_buffer_stale = True
         self._picked_obj = None
 
     # Adds point to model, causes a model-view update and sets picked obj
     def _add_and_pick_point(self, submodel, px_xy):
-        print("_add_and_pick_point called with submodel", submodel.name, "data: ", px_xy)
-        print("Before: pts_px has data: ", submodel.pts_px)
+        logger.debug(
+                f"_add_and_pick_point called. Submodel name: {submodel.name}"
+                f" and pixel coordinates: {px_xy}")
         # The model returns an array index for the point inside the trace.
         self._picked_obj_pt_index = submodel.add_pt_px(px_xy)
         self._picked_obj = submodel.pts_view_obj
@@ -461,19 +468,18 @@ class MplWidget(QWidget):
             index = self._picked_obj_pt_index
             if index is not None:
                 # Move normal points, but first only in view.
-                # Otherwise, the points would be sorted out 
+                # Otherwise, the points would be sorted out
                 self._picked_obj_submodel.update_pt_px(xy_px, index)
             else:
                 # FIXME: Not implemented, move polygons along X etc.
                 pass
-        else:
-            xy_data = self.model.px_to_data_coords(xy_px)
-            if self.model.x_ax.log_scale():
-                xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
-            if self.model.y_ax.log_scale():
-                xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
-            self.mouse_coordinates_updated.emit(*xy_data)
-            pass
+        # Anyways, update coordinates display etc.
+        xy_data = self.model.px_to_data_coords(xy_px)
+        if self.model.x_ax.log_scale():
+            xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
+        if self.model.y_ax.log_scale():
+            xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
+        self.mouse_coordinates_updated.emit(*xy_data)
 
 
     ########## Canvas object redrawing implements background capture blit
