@@ -54,6 +54,8 @@ class MplWidget(QWidget):
     # Emitted when the figure canvas is loaded initially or rescaled to inform
     # about bounding box size etc. Int argument is the current operation mode.
     canvas_rescaled = pyqtSignal(int)
+    # Emitts new X and Y coords in data space when pointer is inside mpl canvas.
+    mouse_coordinates_updated = pyqtSignal(float, float)
 
     def __init__(self, digitizer, model):
         super().__init__(digitizer)
@@ -107,6 +109,7 @@ class MplWidget(QWidget):
         ########## Connect own signals
         self.canvas_qt.mpl_connect("key_press_event", self._on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self._on_figure_enter)
+        self.canvas_qt.mpl_connect("figure_leave_event", self._on_figure_leave)
         self.canvas_qt.mpl_connect("button_press_event", self._on_button_press)
         self.canvas_qt.mpl_connect("button_release_event", self._on_button_release)
         self.canvas_qt.mpl_connect("motion_notify_event", self._on_motion_notify)
@@ -147,9 +150,9 @@ class MplWidget(QWidget):
                 or (model.origin_px < 0.0).any()
                 ):
             if model.origin_view_obj is not None:
+                del self._view_model_map[model.origin_view_obj]
                 model.origin_view_obj.remove()
                 model.origin_view_obj = None
-                del self._view_model_map[model.origin_view_obj]
         else:
             if model.origin_view_obj is None:
                 model.origin_view_obj, = self.mpl_ax.plot(
@@ -362,6 +365,9 @@ class MplWidget(QWidget):
         # in order to receive key press events
         self.canvas_qt.setFocus()
 
+    def _on_figure_leave(self, event):
+        self.mouse_coordinates_updated.emit(NaN, NaN)
+
     def _on_key_press(self, event):
         logger.debug(f"Event key pressed is: {event.key}")
         ##### Escape key switches back to default
@@ -433,7 +439,7 @@ class MplWidget(QWidget):
             return
         # Object is pickable: Set instance attributes to select them
         self._picked_obj = picked_obj
-        self._picked_obj_pt_index = event.ind - 1
+        self._picked_obj_pt_index = event.ind[0]
         self._picked_obj_submodel = picked_obj_submodel
         logger.debug(f"Picked object: {self._picked_obj}")
         logger.debug(f"Picked object index: {self._picked_obj_pt_index}")
@@ -447,21 +453,26 @@ class MplWidget(QWidget):
             self.set_mode(self.MODE_DEFAULT)
 
     def _on_motion_notify(self, event):
-        xydata = event.xdata, event.ydata
+        xy_px = event.xdata, event.ydata
         # Cursor outside of canvas returns none coordiantes, these are ignored
-        if None in xydata:
+        if None in xy_px:
             return
         if self._picked_obj is not None:
             index = self._picked_obj_pt_index
             if index is not None:
                 # Move normal points, but first only in view.
                 # Otherwise, the points would be sorted out 
-                self._picked_obj_submodel.update_pt_px(xydata, index)
+                self._picked_obj_submodel.update_pt_px(xy_px, index)
             else:
                 # FIXME: Not implemented, move polygons along X etc.
                 pass
         else:
-            # FIXME: Update coordinates display etc
+            xy_data = self.model.px_to_data_coords(xy_px)
+            if self.model.x_ax.log_scale():
+                xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
+            if self.model.y_ax.log_scale():
+                xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
+            self.mouse_coordinates_updated.emit(*xy_data)
             pass
 
 

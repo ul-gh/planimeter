@@ -74,8 +74,13 @@ class DataCoordProps(QGroupBox):
     def update_mplw_view(self, op_mode):
         #x_min, x_max = self.mplw.mpl_ax.get_xbound()
         #y_min, y_max = self.mplw.mpl_ax.get_ybound()
-        pass
+        self.mplw.mouse_coordinates_updated.connect(self.update_xy_display)
 
+    @logExceptionSlot(float, float)
+    def update_xy_display(self, px_x: float, px_y: float):
+        self.cursor_x_display.setValue(px_x)
+        self.cursor_y_display.setValue(px_y)
+        
     @logExceptionSlot()
     def _set_model_px_bounds(self, _): # Signal value not needed
         x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
@@ -452,7 +457,6 @@ class SciLineEdit(QLineEdit):
     
     def value(self) -> float:
         return self._value
-
     @pyqtSlot(float)
     def setValue(self, value: float):
         self._value = value

@@ -138,7 +138,8 @@ class MainWindow(QMainWindow):
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None
         # Save working directory
-        self.conf.app_conf.wdir = self._wdir
+        self.conf.app_conf.wdir = self.wdir()
+        self.conf.app_conf.last_image_file = self.last_image_file()
         # Store all configuration
         self.conf.store_to_configfile()
         self.ipyconsole.shutdown_kernel()
