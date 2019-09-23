@@ -784,20 +784,42 @@ class Trace(QObject):
         otherwise, no action takes place.
         """
         xy_data = self.model.px_to_data_coords(xy_px)
-        if not isclose(
-                xy_data[0], self.pts_lin[:,0], atol=self.model.atol).any():
-            self.pts_px[index] = xy_px
-            # This emits a notify signal for the output data
-            self.model._process_tr_input_data(self.trace_no)
+        if self.pts_lin.shape[0] > 1:
+            if index == self.pts_lin.shape[0] - 1:
+                # This is the last point. Restrict movement to the left
+                if xy_data[0] - self.pts_lin[index-1,0] < self.model.atol:
+                    return
+            elif index > 0:
+                # Middlle point
+                if (    xy_data[0] - self.pts_lin[index-1,0] < self.model.atol
+                        or self.pts_lin[index+1,0] - xy_data[0] < self.model.atol):
+                    return
+            else:
+                # First point
+                if self.pts_lin[index+1,0] - xy_data[0] < self.model.atol:
+                    return
+        #if not isclose(
+                #xy_data[0], self.pts_lin[:,0], atol=self.model.atol).any():
+        self.pts_px[index] = xy_px
+        # This emits a notify signal for the output data
+        self.model._process_tr_input_data(self.trace_no)
 
     def delete_pt_px(self, index: int):
-        logger.debug(f"Call Trace.delete_pt_px with index: {index}")
-        self.pts_px = np.delete(self.pts_px, index, axis=0)
+        self._delete_pt_px(index)
         # Trigger a full update of the model and view of inputs and outputs
         self.model._process_tr_input_data(self.trace_no)
         self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-    def _sort_pts(self) -> None:
+    def _delete_pt_px(self, index: int):
+        logger.debug(f"Call Trace.delete_pt_px with index: {index}")
+        self.pts_px = np.delete(self.pts_px, index, axis=0)
+
+    def sort_pts(self):
+        self._sort_pts()
+        self.model._process_tr_input_data(self.trace_no)
+        self.model.tr_input_data_changed[int].emit(self.trace_no)
+
+    def _sort_pts(self):
         # Sort trace points along the first axis.
         #
         # This sorts raw pixel space input points in the order as
@@ -809,6 +831,11 @@ class Trace(QObject):
         logger.debug(f"Sorting IDs: {ids}")
         self.pts_lin = self.pts_lin[ids]
         self.pts_px = self.pts_px[ids]
+
+    def sort_remove_duplicate_pts(self):
+        self._sort_remove_duplicate_pts()
+        self.model._process_tr_input_data(self.trace_no)
+        self.model.tr_input_data_changed[int].emit(self.trace_no)
 
     def _sort_remove_duplicate_pts(self) -> None:
         # Sort trace points along the first axis and
@@ -847,9 +874,9 @@ class Trace(QObject):
                     axis=1
                     )
             #self._interpolation_valid = True
-        except ValueError:
+        except ValueError as e:
             #self._interpolation_valid = False
-            print("Interpolation exception")
+            print("Interpolation exception: ", e)
             pass
 
 

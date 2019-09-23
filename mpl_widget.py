@@ -340,6 +340,7 @@ class MplWidget(QWidget):
             # selected point is likely not supposed to be included
             trace = self.model.traces[self.curr_trace_no]
             trace.delete_pt_px(trace.pts_px.shape[0] - 1)
+            #trace.sort_pts()
         self._blit_buffer_stale = True
         self._picked_obj = None
 
@@ -438,11 +439,15 @@ class MplWidget(QWidget):
                 if picked_obj is picked_obj_submodel.pts_i_view_obj:
                     # The interpolated lines are not draggable
                     return
-            elif not isinstance(picked_obj_submodel, Axis):
-                # The origin point is in the mapping but not pickable
+            else:
+                # Axis points and origin not pickable
                 return
         else:
             # Not found in mapping, view object does not belong here
+            return
+        if event.mouseevent.button == 3:
+            picked_obj_submodel.delete_pt_px(event.ind[0])
+            # Stay in MODE_DEFAULT
             return
         # Object is pickable: Set instance attributes to select them
         self._picked_obj = picked_obj
@@ -474,11 +479,12 @@ class MplWidget(QWidget):
                 pass
         # Anyways, update coordinates display etc.
         xy_data = self.model.px_to_data_coords(xy_px)
-        if self.model.x_ax.log_scale():
-            xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
-        if self.model.y_ax.log_scale():
-            xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
-        self.mouse_coordinates_updated.emit(*xy_data)
+        if xy_data.shape[0] > 0:
+            if self.model.x_ax.log_scale():
+                xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
+            if self.model.y_ax.log_scale():
+                xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
+            self.mouse_coordinates_updated.emit(*xy_data)
 
 
     ########## Canvas object redrawing implements background capture blit

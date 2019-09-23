@@ -99,7 +99,7 @@ class Digitizer(QWidget):
             self.show_error(e)
 
     @logExceptionSlot()
-    def load_clipboard_image(self):
+    def load_clipboard_image(self, state):
         image = self.clipboard.image()
         if image.isNull():
             self.show_text("There is no image data in the system clipboard!")
@@ -108,7 +108,7 @@ class Digitizer(QWidget):
         self.mplw.load_image(self.temp_filename)
 
     @logExceptionSlot()
-    def put_clipboard(self):
+    def put_clipboard(self, state):
         trace = self.model.traces[self.mplw.curr_trace_no]
         pts_i = trace.pts_i
         if self.conf.app_conf.decimal_chr.lower() == "system":

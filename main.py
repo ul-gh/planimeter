@@ -11,6 +11,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 # FIXME: Set levels for debug only
 logging.getLogger("matplotlib.axes._base").setLevel(logging.INFO)
 logging.getLogger("matplotlib.pyplot").setLevel(logging.INFO)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.INFO)
 logger = logging.getLogger("MainWindow")
 
 import os
