@@ -442,7 +442,7 @@ class DataModel(QObject):
                               (xmin, ymax),
                               (xmax, ymin),
                               (xmax, ymax)))
-        bbox_px = self.origin_px + (self.data_to_px_mat @ bbox_data.T).T
+        bbox_px = self.data_to_px_coords(bbox_data)
         xmin_px, ymin_px = np.min(bbox_px, axis=0)
         xmax_px, ymax_px = np.max(bbox_px, axis=0)
         return (xmin_px, xmax_px), (ymin_px, ymax_px)

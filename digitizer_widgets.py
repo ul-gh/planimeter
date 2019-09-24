@@ -9,6 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from functools import partial
+import numpy as np
 from numpy import NaN, isclose, isnan
 
 from PyQt5.QtCore import Qt, QLocale, pyqtSlot, pyqtSignal
@@ -51,47 +52,49 @@ class DataCoordProps(QGroupBox):
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
-        self.x_min_edit.valid_number_entered.connect(self._set_model_px_bounds)
-        self.x_max_edit.valid_number_entered.connect(self._set_model_px_bounds)
-        self.y_min_edit.valid_number_entered.connect(self._set_model_px_bounds)
-        self.y_max_edit.valid_number_entered.connect(self._set_model_px_bounds)
+        self.x_min_edit.valid_number_entered.connect(self._set_canvas_extents)
+        self.x_max_edit.valid_number_entered.connect(self._set_canvas_extents)
+        self.y_min_edit.valid_number_entered.connect(self._set_canvas_extents)
+        self.y_max_edit.valid_number_entered.connect(self._set_canvas_extents)
 
         ########## Connect foreign signals
-        model.coordinate_system_changed.connect(self.update_model_view)
+        #model.coordinate_system_changed.connect(self.update_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.canvas_rescaled.connect(self.update_mplw_view)
+        mplw.mouse_coordinates_updated.connect(self.update_xy_display)
 
     @logExceptionSlot()
     def update_model_view(self):
-        x_min, x_max = self.model.x_ax.pts_data
-        y_min, y_max = self.model.y_ax.pts_data
+        pass
+
+    @logExceptionSlot(int)
+    def update_mplw_view(self, op_mode):
+        xb = self.mplw.mpl_ax.get_xbound()
+        yb = self.mplw.mpl_ax.get_ybound()
+        bounds_px = np.concatenate((xb, yb)).reshape(-1, 2, order="F")
+        bounds_data = self.model.px_to_data_coords(bounds_px)
+        if self.model.x_ax.log_scale():
+            bounds_data[:,0] = self.model.x_ax.log_base ** bounds_data[:,0]
+        if self.model.y_ax.log_scale():
+            bounds_data[:,1] = self.model.y_ax.log_base ** bounds_data[:,1]
+        (x_min, y_min), (x_max, y_max) = bounds_data
         self.x_min_edit.setValue(x_min)
         self.x_max_edit.setValue(x_max)
         self.y_min_edit.setValue(y_min)
         self.y_max_edit.setValue(y_max)
-
-    @logExceptionSlot(int)
-    def update_mplw_view(self, op_mode):
-        #x_min, x_max = self.mplw.mpl_ax.get_xbound()
-        #y_min, y_max = self.mplw.mpl_ax.get_ybound()
-        self.mplw.mouse_coordinates_updated.connect(self.update_xy_display)
 
     @logExceptionSlot(float, float)
     def update_xy_display(self, px_x: float, px_y: float):
         self.cursor_x_display.setValue(px_x)
         self.cursor_y_display.setValue(px_y)
         
-    @logExceptionSlot()
-    def _set_model_px_bounds(self, _): # Signal value not needed
+    @logExceptionSlot(float)
+    def _set_canvas_extents(self, _): # Signal value not needed
         x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
         y_min_max = self.y_min_edit.value(), self.y_max_edit.value()
         # Displays error message box for invalid data
-        bbox = self.model.px_from_data_bounds(x_min_max, y_min_max)
-        if bbox is not None:
-            x_min_max_px, y_min_max_px = bbox
-            self.mplw.mpl_ax.set_xbound(x_min_max)
-            self.mplw.mpl_ax.set_ybound(y_min_max)
-            self.mplw.canvas_qt.draw_idle()
+        bounds_px = self.model.px_from_data_bounds(x_min_max, y_min_max)
+        self.mplw.set_canvas_extents(bounds_px)
 
     def _set_layout(self):
         layout = QGridLayout(self)
@@ -303,6 +306,9 @@ class AxConfWidget(QWidget):
                 model.num_fmt)
         self.btn_lin_y = QRadioButton("Lin")
         self.btn_log_y = QRadioButton("Log")
+        ##### Common settings
+        # Enable make axes points mouse-pickable if set
+        self.btn_drag_axes = QCheckBox("Axes Draggable")
         # Store plot config button
         self.btn_store_config = QCheckBox("Store Config")
         # Setup Layout
@@ -317,6 +323,7 @@ class AxConfWidget(QWidget):
         self.btn_pick_y.toggled.connect(mplw.set_mode_setup_y_axis)
         self.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
         self.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
+        self.btn_drag_axes.toggled.connect(mplw.set_drag_axes)
         self.btn_store_config.toggled.connect(model.set_persistent_storage)
         # Number input boxes emit float signals.
         self.xstart_edit.valid_number_entered.connect(model.x_ax.set_ax_start)
@@ -337,6 +344,7 @@ class AxConfWidget(QWidget):
     def update_mplw_view(self, op_mode):
         self.btn_pick_x.setChecked(op_mode == self.mplw.MODE_SETUP_X_AXIS)
         self.btn_pick_y.setChecked(op_mode == self.mplw.MODE_SETUP_Y_AXIS)
+        self.btn_drag_axes.setChecked(self.mplw._drag_axes)
 
     # Updates buttons and input boxes to represent the data model state
     # and also the new and current matplotlib widget operation mode.
@@ -387,11 +395,15 @@ class AxConfWidget(QWidget):
         group_y_layout.addWidget(self.btn_lin_y)
         group_y_layout.addWidget(self.btn_log_y)
         group_y_layout.addWidget(self.btn_pick_y)
+        # Common setings box
+        common_btns_layout = QVBoxLayout()
+        common_btns_layout.addWidget(self.btn_store_config)
+        common_btns_layout.addWidget(self.btn_drag_axes)
         # This is all input boxes plus label
         axconfw_layout = QHBoxLayout(self)
         axconfw_layout.addWidget(self.group_x)
         axconfw_layout.addWidget(self.group_y)
-        axconfw_layout.addWidget(self.btn_store_config)
+        axconfw_layout.addLayout(common_btns_layout)
 
 
 ########## Custom Widgets Used Above

@@ -73,6 +73,9 @@ class MplWidget(QWidget):
         # What happens when the plot canvas is clicked..
         self._op_mode = self.MODE_DEFAULT
         self.curr_trace_no = 0
+        # Enabling axes picking can lead to difficulties picking trace points
+        # if these are close to the axis lines. Thus defaulting to False.
+        self._drag_axes = False
         # This stores the pyplot.Lines2D object when a plot item was picked
         self._picked_obj = None
         # Model component with view associated data for a mouse-picked object
@@ -123,6 +126,19 @@ class MplWidget(QWidget):
         model.output_data_changed[int].connect(self.update_model_view_traces)
 
 
+    ########## Configuration
+    @pyqtSlot(bool)
+    def set_drag_axes(self, state):
+        self._drag_axes = state
+    
+    def set_canvas_extents(self, bounds_px):
+        if bounds_px is not None:
+            x_min_max_px, y_min_max_px = bounds_px
+            self.mpl_ax.set_xbound(x_min_max_px)
+            self.mpl_ax.set_ybound(y_min_max_px)
+            self._blit_buffer_stale = True
+            self._do_blit_redraw()
+
     ########## Data Input Methods
     @logExceptionSlot()
     def update_model_view_axes(self):
@@ -165,7 +181,6 @@ class MplWidget(QWidget):
             model.origin_view_obj.set_label("Data Axes Origin")
         ##### Redraw axes and origin view objects
         self._do_blit_redraw()
-
 
 
     @pyqtSlot()
@@ -343,6 +358,7 @@ class MplWidget(QWidget):
         self._add_and_pick_point(trace, (NaN, NaN))
 
     def _enter_mode_drag_obj(self):
+        self._blit_buffer_stale = True
         logger.info("Drag the picked object!")
         # Actual movement happens in mouse motion notify event handler
 
@@ -446,8 +462,11 @@ class MplWidget(QWidget):
                 # Interpolated lines are not draggable, only activate the trace
                 if picked_obj is picked_obj_submodel.pts_i_view_obj:
                     return
+            elif isinstance(picked_obj_submodel, Axis):
+                if not self._drag_axes:
+                    return
             else:
-                # Axis points and origin not pickable
+                # Origin or other objects are not pickable
                 return
         else:
             # Not found in mapping, view object does not belong here
