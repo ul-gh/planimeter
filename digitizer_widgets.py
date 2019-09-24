@@ -213,7 +213,7 @@ class TraceConfTable(QTableWidget):
 
         ########## Connect foreign signals
         # Update when trace config changes, e.g. if traces are added or renamed
-        model.tr_input_data_changed.connect(self.update_model_view)
+        model.tr_conf_changed.connect(self.update_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.mode_sw.connect(self.update_mplw_view)
 

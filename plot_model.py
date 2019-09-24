@@ -58,10 +58,8 @@ class DataModel(QObject):
     # Since the input data is normally set by the view itself, a redraw of raw
     # input data is not performed when this signal is emitted.
     output_data_changed = pyqtSignal([], [int])
-    # Emitted from the traces objects and triggers a re-display of the raw
-    # (pixel-space) input points. Can address a single trace by number index.
-    # When a trace is added or deleted, the signal is emitted without index.
-    tr_input_data_changed = pyqtSignal([], [int])
+    # When a trace is added, deleted or config modified, this signal is emitted
+    tr_conf_changed = pyqtSignal()
     # Emitted from the axes objects, updates all view outputs
     ax_input_data_changed = pyqtSignal()
     # Triggers updates of coordinate settings box
@@ -145,9 +143,8 @@ class DataModel(QObject):
         ########## Connect axes input changes to own calculation
         self.ax_input_data_changed.connect(self._calc_coordinate_transformation)
         
-        ########## Connect trace input changes to own outputs calculation
-        self.tr_input_data_changed.connect(self._process_tr_input_data)
-        self.tr_input_data_changed[int].connect(self._process_tr_input_data)
+        ########## Connect trace config changes to own outputs calculation
+        self.tr_conf_changed.connect(self._process_tr_input_data)
 
 
     ########## Export Related Methods
@@ -551,7 +548,7 @@ class DataModel(QObject):
 
     @logExceptionSlot()
     @logExceptionSlot(int)
-    def _process_tr_input_data(self, trace_no=None, sorting_needed=False):
+    def _process_tr_input_data(self, trace_no=None):
         """Performs coordinate transformation, sorting, interpolation 
         and linearisation of log axes on the data model.
         """
@@ -570,9 +567,6 @@ class DataModel(QObject):
             else:
                 # These calls do the heavy work
                 tr.pts_lin = self.px_to_data_coords(tr.pts_px)
-                # Anyways:
-                if sorting_needed:
-                    tr._sort_pts()
                 tr._interpolate_view_data()
                 tr._handle_log_scale(self.x_ax, self.y_ax)
         # What the name says..
@@ -748,7 +742,7 @@ class Trace(QObject):
         self._init_data()
         # Trigger a full update of the model and view of inputs and outputs
         self.model._process_tr_input_data(self.trace_no)
-        self.model.tr_input_data_changed[int].emit(self.trace_no)
+        #self.model.tr_input_data_changed[int].emit(self.trace_no)
 
     def add_pt_px(self, xy_px: Iterable[float]) -> int:
         """Add a point in pixel coordinates to the trace.
@@ -771,59 +765,67 @@ class Trace(QObject):
             logger.warning("No live updates: Coordinate system not defined.")
             return self.pts_px.shape[0] - 1
         # Sorting also puts NaN values at the end
-        self.model._process_tr_input_data(self.trace_no, sorting_needed=True)
+        self.model._process_tr_input_data(self.trace_no)
         pt_index = self.pts_px.shape[0] - 1
         logger.debug(f"Setting point at index {pt_index}")
-        self.model.tr_input_data_changed[int].emit(self.trace_no)
+        #self.model.tr_input_data_changed[int].emit(self.trace_no)
         return pt_index
-
+    
     def update_pt_px(self, xy_px: Iterable[float], index: int):
         """Moves a point to the specified position in pixel coordinates.
-        
-        Moves only if this does not result in duplicate points,
-        otherwise, no action takes place.
         """
-        xy_data = self.model.px_to_data_coords(xy_px)
-        if self.pts_lin.shape[0] > 1:
-            if index == self.pts_lin.shape[0] - 1:
-                # This is the last point. Restrict movement to the left
-                if xy_data[0] - self.pts_lin[index-1,0] < self.model.atol:
-                    return
-            elif index > 0:
-                # Middlle point
-                if (    xy_data[0] - self.pts_lin[index-1,0] < self.model.atol
-                        or self.pts_lin[index+1,0] - xy_data[0] < self.model.atol):
-                    return
-            else:
-                # First point
-                if self.pts_lin[index+1,0] - xy_data[0] < self.model.atol:
-                    return
-        #if not isclose(
-                #xy_data[0], self.pts_lin[:,0], atol=self.model.atol).any():
         self.pts_px[index] = xy_px
         # This emits a notify signal for the output data
         self.model._process_tr_input_data(self.trace_no)
 
-    def delete_pt_px(self, index: int):
-        self._delete_pt_px(index)
-        # Trigger a full update of the model and view of inputs and outputs
+    def move_restricted_pt_px(self, xy_px: Iterable[float], index: int):
+        """Moves a point to the specified position in pixel coordinates.
+        
+        Moves point only if the X coordinate of the point transformed
+        into the data coordinate system is between that of any adjacent
+        points in order not to disturb the ordering.
+        Otherwise, data is left untouched.
+        
+        This is for point drag operation.
+        """
+        xy_data = self.model.px_to_data_coords(xy_px)
+        # The very first point can be moved without restrictions,
+        # if there are at least two points, we check the limits
+        if self.pts_lin.shape[0] > 1:
+            if index == self.pts_lin.shape[0] - 1:
+                # Last point, restrict move to right side of previous points
+                if xy_data[0] - self.pts_lin[index-1,0] < self.model.atol:
+                    return
+            elif index == 0:
+                # First point, restrict move to left side of following points
+                if self.pts_lin[index+1,0] - xy_data[0] < self.model.atol:
+                    return
+            else:
+                # Middlle point, restrict to both adjacent points
+                if (xy_data[0] - self.pts_lin[index-1,0] < self.model.atol
+                    or self.pts_lin[index+1,0] - xy_data[0] < self.model.atol
+                    ):
+                    return
+        # If no restriction applies, move point:
+        self.pts_px[index] = xy_px
+        # This emits a notify signal for the output data
         self.model._process_tr_input_data(self.trace_no)
-        self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-    def _delete_pt_px(self, index: int):
+    def delete_pt_px(self, index: int, trigger_update=True):
         logger.debug(f"Call Trace.delete_pt_px with index: {index}")
         self.pts_px = np.delete(self.pts_px, index, axis=0)
+        if trigger_update:
+            # Trigger a full update of the model and view of inputs and outputs
+            self.model._process_tr_input_data(self.trace_no)
+            #self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-    def sort_pts(self):
-        self._sort_pts()
-        self.model._process_tr_input_data(self.trace_no)
-        self.model.tr_input_data_changed[int].emit(self.trace_no)
-
-    def _sort_pts(self):
-        # Sort trace points along the first axis.
-        #
-        # This sorts raw pixel space input points in the order as
-        # they correspond to the sorted data space points.
+    def sort_pts(self, trigger_update=True):
+        """
+        Sort trace points along the first axis.
+        
+        This sorts raw pixel space input points in the order as
+        they correspond to the sorted data space points.
+        """
         if self.pts_lin.shape != self.pts_px.shape:
             logger.critical("Sorting error: Array shape is not compatible")
             return
@@ -831,18 +833,20 @@ class Trace(QObject):
         logger.debug(f"Sorting IDs: {ids}")
         self.pts_lin = self.pts_lin[ids]
         self.pts_px = self.pts_px[ids]
+        if trigger_update:
+            self.model._process_tr_input_data(self.trace_no)
+            #self.model.tr_input_data_changed[int].emit(self.trace_no)
 
-    def sort_remove_duplicate_pts(self):
-        self._sort_remove_duplicate_pts()
-        self.model._process_tr_input_data(self.trace_no)
-        self.model.tr_input_data_changed[int].emit(self.trace_no)
-
-    def _sort_remove_duplicate_pts(self) -> None:
-        # Sort trace points along the first axis and
-        # remove duplicate rows.
-        #
-        # This sorts raw pixel space input points in the order as
-        # they correspond to the sorted data space points.
+    def sort_remove_duplicate_pts(self, trigger_update=True):
+        """Sort trace points along the first axis and
+        remove duplicate rows.
+        
+        This sorts raw pixel space input points in the order as
+        they correspond to the sorted data space points.
+        """
+        # Sorting is only possible with at least two points..
+        if self.pts_lin.shape[0] < 2:
+            return
         if self.pts_lin.shape != self.pts_px.shape:
             logger.critical("Sorting error: Array shape is not compatible")
             return
@@ -850,33 +854,36 @@ class Trace(QObject):
                 self.pts_lin, axis=0, return_index=True)
         self.pts_px = self.pts_px[unique_ids]
         logger.debug(f"UNIQUE IDs: {unique_ids}")
+        if trigger_update:
+            self.model._process_tr_input_data(self.trace_no)
+            #self.model.tr_input_data_changed[int].emit(self.trace_no)
 
+    # Scipy interpolate generates an interpolation function joining
+    # all data points. This is added to the trace instance.
+    #
+    # In order for this to be a valid function, there must be no
+    # duplicate or ambiguous points.
     def _interpolate_view_data(self) -> None:
-        # Acts on linear coordinates.
-        # Needs at least four data points for interpolation.
-        pts = self.pts_lin
-        if pts.shape[0] < 4:
-            return
         try:
-            # Scipy interpolate generates an interpolation function which is added
-            # to this instance attriutes
+            # Sort and filter out duplicate points
+            data_x, data_y = np.unique(self.pts_lin, axis=0).T
+            # Needs at least four data points for interpolation.
+            if data_x.shape[0] < 4:
+                return
             self.f_interp_lin = interp1d(
-                    *pts.T,
+                    data_x,
+                    data_y,
                     kind=self.interp_type,
-                    fill_value="extrapolate",
                     assume_sorted=True,
                     )
             # Generate finer grid
-            xgrid = np.linspace(pts[0,0], pts[-1,0], num=self.n_pts_i_view)
-            yvals = self.f_interp_lin(xgrid)
-            self.pts_lin_i = np.concatenate(
-                    (xgrid.reshape(-1, 1), yvals.reshape(-1, 1)),
-                    axis=1
-                    )
+            xf = np.linspace(data_x[0], data_x[-1], num=self.n_pts_i_view)
+            yf = self.f_interp_lin(xf)
+            self.pts_lin_i = np.concatenate((xf, yf)).reshape(-1, 2, order="F")
             #self._interpolation_valid = True
         except ValueError as e:
             #self._interpolation_valid = False
-            print("Interpolation exception: ", e)
+            logger.warning(f"Interpolation exception: {e}")
             pass
 
 

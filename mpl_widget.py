@@ -252,29 +252,6 @@ class MplWidget(QWidget):
         print(view_items_text)
 
     ########## State Machine Methods
-    @logExceptionSlot(int)
-    def set_mode(self, new_mode: int):
-        logger.debug(f"set_mode called with argument: {new_mode}.")
-        # Prevent recursive calls when external widgets are updated
-        if new_mode == self._op_mode:
-            return
-        logger.debug(f"Entering new operation mode: {new_mode}.")
-        previous_mode = self._op_mode
-        self._op_mode = new_mode
-        # Call hanlers setting up each operation mode
-        if new_mode == self.MODE_SETUP_X_AXIS:
-            self._enter_mode_setup_x_axis(previous_mode)
-        elif new_mode == self.MODE_SETUP_Y_AXIS:
-            self._enter_mode_setup_y_axis(previous_mode)
-        elif new_mode == self.MODE_ADD_TRACE_PTS:
-            self._enter_mode_add_trace_pts(previous_mode)
-        elif new_mode == self.MODE_DRAG_OBJ:
-            self._enter_mode_drag_obj(previous_mode)
-        else:
-            self._op_mode = self.MODE_DEFAULT
-            self._enter_mode_default(previous_mode)
-        self.mode_sw.emit(self._op_mode)
-
     @logExceptionSlot(bool)
     def set_mode_setup_x_axis(self, state=True):
         if state:
@@ -299,20 +276,56 @@ class MplWidget(QWidget):
             self.set_mode(self.MODE_DEFAULT)
 
 
-    ##### Handlers performing the operation mode transitions
-    #          Each called from self.set_mode()
-    def _enter_mode_setup_x_axis(self, previous_mode):
+    @logExceptionSlot(int)
+    def set_mode(self, new_mode: int):
+        logger.debug(f"set_mode called with argument: {new_mode}.")
+        # Prevent recursive calls when external widgets are updated
+        if new_mode == self._op_mode:
+            return
+        # Leave old mode
+        previous_mode = self._op_mode
+        logger.debug(f"Leaving operation mode: {previous_mode}.")
+        # Call handlers for leaving each operation mode
+        if previous_mode == self.MODE_ADD_TRACE_PTS:
+            self._leave_mode_add_trace_pts()
+        # Enter new mode
+        self._op_mode = new_mode
+        logger.debug(f"Entering new operation mode: {new_mode}.")
+        # Call hanlers setting up each operation mode
+        if new_mode == self.MODE_SETUP_X_AXIS:
+            self._enter_mode_setup_x_axis()
+        elif new_mode == self.MODE_SETUP_Y_AXIS:
+            self._enter_mode_setup_y_axis()
+        elif new_mode == self.MODE_ADD_TRACE_PTS:
+            self._enter_mode_add_trace_pts()
+        elif new_mode == self.MODE_DRAG_OBJ:
+            self._enter_mode_drag_obj()
+        else:
+            self._op_mode = self.MODE_DEFAULT
+            self._enter_mode_default()
+        self.mode_sw.emit(self._op_mode)
+
+
+    ##### Handlers Performing the Operation Mode Transitions
+    def _leave_mode_add_trace_pts(self):
+        trace = self.model.traces[self.curr_trace_no]
+        # When hitting a button to exit trace points add mode, the last
+        # selected point is likely not supposed to be included
+        trace.delete_pt_px(trace.pts_px.shape[0] - 1)
+        trace.sort_remove_duplicate_pts()
+        
+    def _enter_mode_setup_x_axis(self):
         logger.info("Pick X axis points!")
         self._blit_buffer_stale = True
         # Assuming the cursor is outside the figure anyways,initialise with NaN
         self._add_and_pick_point(self.model.x_ax, np.full(2, NaN))
 
-    def _enter_mode_setup_y_axis(self, previous_mode):
+    def _enter_mode_setup_y_axis(self):
         logger.info("Pick Y axis points!")
         self._blit_buffer_stale = True
         self._add_and_pick_point(self.model.y_ax, np.full(2, NaN))
 
-    def _enter_mode_add_trace_pts(self, previous_mode):
+    def _enter_mode_add_trace_pts(self):
         if not self.model.axes_setup_is_complete():
             text = "You must configure the axes first!"
             logger.info(text)
@@ -327,20 +340,14 @@ class MplWidget(QWidget):
             # Clears data objects of curr_trace and triggers a view update
             trace.clear_trace()
         logger.info(f"Add points mode for trace {self.curr_trace_no + 1}!")
-        self._add_and_pick_point(trace, np.full(2, NaN))
+        self._add_and_pick_point(trace, (NaN, NaN))
 
-    def _enter_mode_drag_obj(self, previous_mode):
+    def _enter_mode_drag_obj(self):
         logger.info("Drag the picked object!")
         # Actual movement happens in mouse motion notify event handler
 
-    def _enter_mode_default(self, previous_mode):
+    def _enter_mode_default(self):
         logger.info("Switching back to default mode")
-        if previous_mode == self.MODE_ADD_TRACE_PTS:
-            # When hitting a button to exit trace points add mode, the last
-            # selected point is likely not supposed to be included
-            trace = self.model.traces[self.curr_trace_no]
-            trace.delete_pt_px(trace.pts_px.shape[0] - 1)
-            #trace.sort_pts()
         self._blit_buffer_stale = True
         self._picked_obj = None
 
@@ -367,7 +374,7 @@ class MplWidget(QWidget):
                 QMessageBox.Save | QMessageBox.Discard)
         return messagebox.exec_() == QMessageBox.Discard
 
-    ########## Matplotlib canvas event handlers
+    ########## Matplotlib Canvas Event Handlers
     def _on_figure_enter(self, event):
         # Set Qt keyboard input focus to the matplotlib canvas
         # in order to receive key press events
@@ -419,7 +426,7 @@ class MplWidget(QWidget):
         if self._op_mode == self.MODE_ADD_TRACE_PTS:
             trace = model.traces[self.curr_trace_no]
             # Add new point to the model at current mouse coordinates
-            self._add_and_pick_point(trace, np.full(2, NaN))
+            self._add_and_pick_point(trace, px_xy)
             return
         return
 
@@ -436,8 +443,8 @@ class MplWidget(QWidget):
             picked_obj_submodel = self._view_model_map[picked_obj]
             if isinstance(picked_obj_submodel, Trace):
                 self.trace_no = picked_obj_submodel.trace_no
+                # Interpolated lines are not draggable, only activate the trace
                 if picked_obj is picked_obj_submodel.pts_i_view_obj:
-                    # The interpolated lines are not draggable
                     return
             else:
                 # Axis points and origin not pickable
@@ -470,13 +477,18 @@ class MplWidget(QWidget):
         if None in xy_px:
             return
         if self._picked_obj is not None:
-            index = self._picked_obj_pt_index
-            if index is not None:
-                # Move selected point
-                self._picked_obj_submodel.update_pt_px(xy_px, index)
-            else:
-                # FIXME: Not implemented, move polygons along X etc.
-                pass
+            if isinstance(self._picked_obj_submodel, Trace):
+                # Move trace point
+                if self._op_mode == self.MODE_DRAG_OBJ:
+                    self._picked_obj_submodel.move_restricted_pt_px(
+                            xy_px, self._picked_obj_pt_index)
+                elif self._op_mode == self.MODE_ADD_TRACE_PTS:
+                    self._picked_obj_submodel.update_pt_px(
+                            xy_px, self._picked_obj_pt_index)
+            elif isinstance(self._picked_obj_submodel, Axis):
+                # Moe axis point
+                self._picked_obj_submodel.update_pt_px(
+                        xy_px, self._picked_obj_pt_index)
         # Anyways, update coordinates display etc.
         xy_data = self.model.px_to_data_coords(xy_px)
         if xy_data.shape[0] > 0:
@@ -487,7 +499,7 @@ class MplWidget(QWidget):
             self.mouse_coordinates_updated.emit(*xy_data)
 
 
-    ########## Canvas object redrawing implements background capture blit
+    ########## 2D Graphics Acceleration using BLIT Methods
     # Qt AGG backend required:
     # Select view objects for mouse dragging and prepare block image transfer
     # by capturing the canvas background excluding selected view objects.
