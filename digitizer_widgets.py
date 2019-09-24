@@ -137,6 +137,7 @@ class ExportSettingsBox(QGroupBox):
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
+        self.btn_export.toggled.connect(self.wip_do_export)
 
         ########## Connect foreign signals
         model.export_settings_changed.connect(self.update_model_view)
@@ -151,6 +152,12 @@ class ExportSettingsBox(QGroupBox):
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
         pass
+    
+    @logExceptionSlot(bool)
+    def wip_do_export(self, state):
+        trace = self.model.traces[self.mplw.curr_trace_no]
+        self.model.wip_export(trace)
+        self.model.wip_plot_cap_charge_e_stored(trace)
     
     def _set_layout(self):
         layout = QHBoxLayout(self)
