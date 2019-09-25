@@ -386,6 +386,7 @@ class DataModel(QObject):
         origin, i.e. the output is absolute.
         
         Input and output are 2D arrays of X and Y in rows.
+        Input and output can alternatively both be 1D for one point.
         """
         return self.linscale_to_px(self.data_to_linscale(data_pts, copy=copy))
     
@@ -395,7 +396,7 @@ class DataModel(QObject):
         or logarithmic, depending on each axis configuration.
         
         Input and output are 2D arrays of X and Y in rows.
-        The output is a copy in any case.
+        Input and output can alternatively both be 1D for one point.
         """
         return self.linscale_to_data(self.px_to_linscale(px_pts), copy=False)
     
@@ -434,12 +435,13 @@ class DataModel(QObject):
         else:
             return np.empty((0, 2))
 
-    def linscale_to_data(self, linscale_pts: np.ndarray, copy=True) -> np.ndarray:
+    def linscale_to_data(self, lin_pts: np.ndarray, copy=True) -> np.ndarray:
         """Returns the transformation of the input points from linear
         scale coordinates into output scale, which can also be linear
         or logarithmic, depending on each axis configuration.
         
         Input and output are 2D arrays of X and Y in rows.
+        Input and output can alternatively both be 1D for one point.
         The output is a copy by default.
         """
         x_ax, y_ax = self.x_ax, self.y_ax
@@ -447,22 +449,26 @@ class DataModel(QObject):
             if y_ax.log_scale:
                 ##### CASE 1: dual logarithmic scale
                 # Transform points Y coordinates back to log scale
-                data_pts = (x_ax.log_base, y_ax.log_base) ** linscale_pts
+                # Returns a copy in any case due to the arithmetic operation
+                lin_pts = np.array(lin_pts, copy=False)
+                return (x_ax.log_base, y_ax.log_base) ** lin_pts
             else:
                 ##### CASE 2: X axis only logarithmic scale
                 # Transform points X coordinates back to log scale
-                data_pts = linscale_pts.copy() if copy else linscale_pts
-                data_pts[:,0] = x_ax.log_base ** linscale_pts[:,0]
+                data_pts = np.array(lin_pts, ndmin=2, copy=copy)
+                data_pts[:,0] = x_ax.log_base ** data_pts[:,0]
+                return data_pts[0] if lin_pts.ndim == 1 else data_pts
         else:
             if y_ax.log_scale:
                 ##### CASE 3: Y axis only logarithmic scale
                 # Transform points Y coordinates back to log scale
-                data_pts = linscale_pts.copy() if copy else linscale_pts
-                data_pts[:,1] = y_ax.log_base ** linscale_pts[:,1]
+                data_pts = np.array(lin_pts, ndmin=2, copy=copy)
+                data_pts[:,1] = y_ax.log_base ** data_pts[:,1]
+                return data_pts[0] if lin_pts.ndim == 1 else data_pts
             else:
                 ##### CASE 4: no logarithmic scale
-                data_pts = linscale_pts.copy() if copy else linscale_pts
-        return data_pts
+                return np.array(lin_pts, copy=copy)
+
     
     def data_to_linscale(self, data_pts: np.ndarray, copy=True) -> np.ndarray:
         """Returns the transformation of the points from output scale
@@ -475,31 +481,28 @@ class DataModel(QObject):
         Return value is a copy by default.
         """
         x_ax, y_ax = self.x_ax, self.y_ax
-        ndim_in = data_pts.ndim
-        data_pts = np.array(data_pts, copy=False, ndmin=2)
         if x_ax.log_scale:
             if y_ax.log_scale:
                 ##### CASE 1: dual logarithmic scale
                 # Transform points Y coordinates back to log scale
-                linscale_pts = np.log(data_pts) / np.log(
-                        (x_ax.log_base, y_ax.log_base))
+                # This returns a copy in any case
+                return np.log(data_pts) / np.log((x_ax.log_base, y_ax.log_base))
             else:
                 ##### CASE 2: X axis only logarithmic scale
                 # Transform points X coordinates back to log scale
-                linscale_pts = data_pts.copy() if copy else data_pts
-                linscale_pts[:,0] = np.log(data_pts[:,0]) / np.log(
-                        x_ax.log_base)
+                lin_pts = np.array(data_pts, ndmin=2, copy=copy)
+                lin_pts[:,0] = np.log(lin_pts[:,0]) / np.log(x_ax.log_base)
+                return lin_pts[0] if data_pts.ndim == 1 else lin_pts
         else:
             if y_ax.log_scale:
                 ##### CASE 3: Y axis only logarithmic scale
                 # Transform points Y coordinates back to log scale
-                linscale_pts = data_pts.copy() if copy else data_pts
-                linscale_pts[:,1] = np.log(data_pts[:,1]) / np.log(
-                        y_ax.log_base)
+                lin_pts = np.array(data_pts, ndmin=2, copy=copy)
+                lin_pts[:,1] = np.log(lin_pts[:,1]) / np.log(y_ax.log_base)
+                return lin_pts[0] if data_pts.ndim == 1 else lin_pts
             else:
                 ##### CASE 4: no logarithmic scale
-                linscale_pts = data_pts.copy() if copy else data_pts
-        return linscale_pts
+                return np.array(data_pts, copy=copy)
 
     def validate_data_pts(self, data_pts: np.ndarray) -> bool:
         """Emits an error message and returns False if data coordinates are

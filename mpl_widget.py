@@ -516,13 +516,8 @@ class MplWidget(QWidget):
                         xy_px, self._picked_obj_pt_index)
         # Anyways, update coordinates display etc.
         xy_data = self.model.px_to_data(xy_px)
-        #xy_data = self.model.px_to_linscale(xy_px)
         if xy_data.shape[0] > 0:
-        #    if self.model.x_ax.log_scale:
-        #        xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
-        #    if self.model.y_ax.log_scale:
-        #        xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
-            self.mouse_coordinates_updated.emit(*xy_data[0])
+            self.mouse_coordinates_updated.emit(*xy_data)
 
     def _on_resize(self, _):
         # Delayed screen redraw and blit buffer update when canvas is resized
@@ -556,7 +551,7 @@ class MplWidget(QWidget):
             obj.set_visible(True)
         self._blit_buffer_stale = False
 
-    @logExceptionSlot
+    @logExceptionSlot()
     def _do_blit_redraw(self):
         if self._blit_buffer_stale:
             logger.debug("Calling capture for blit redraw")
