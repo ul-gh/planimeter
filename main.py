@@ -89,12 +89,12 @@ class MainWindow(QMainWindow):
         self.dlg_open_image = QFileDialog(
                 self,
                 "Open Source Image",
-                self._wdir,
+                self.wdir,
                 "Images (*.png *.jpg *.jpeg)")
         self.dlg_export_csv = QFileDialog(
-                self, "Export CSV", self._wdir, "Text/CSV (*.csv *.txt)")
+                self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
         self.dlg_export_xlsx = QFileDialog(
-                self, "Export XLS/XLSX", self._wdir, "Excel (*.xlsx)")
+                self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
         
         ########## Embedded IPython Kernel and Jupyter Console Launcher
         self.ipyconsole = EmbeddedIPythonKernel(self)
@@ -120,8 +120,8 @@ class MainWindow(QMainWindow):
         self.dlg_export_csv.fileSelected.connect(self.cw.export_csv)
         
         # Reopen last file if requested and if it exists
-        if self.last_image_file() != "":
-            self.cw.mplw.load_image(self.last_image_file())
+        if self.last_image_file != "":
+            self.cw.mplw.load_image(self.last_image_file)
         
 
     def closeEvent(self, event):
@@ -139,28 +139,25 @@ class MainWindow(QMainWindow):
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None
         # Save working directory
-        self.conf.app_conf.wdir = self.wdir()
-        self.conf.app_conf.last_image_file = self.last_image_file()
+        self.conf.app_conf.wdir = self.wdir
+        self.conf.app_conf.last_image_file = self.last_image_file
         # Store all configuration
         self.conf.store_to_configfile()
         self.ipyconsole.shutdown_kernel()
         event.accept()
 
-    def wdir(self):
-        return self._wdir
     @pyqtSlot(str)
     def set_wdir(self, abs_path):
         # Set working directory to last opened file directory
-        self._wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
+        self.wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
 
-    def last_image_file(self):
-        return self._last_image_file
     @pyqtSlot(str)
     def set_last_image_file(self, abs_path):
         # This property will be reloaded if persistent_storage property of
         # digitizer instance is set. Then, the input image file will be
         # re-loaded on next start
-        self._last_image_file = abs_path if os.path.isfile(abs_path) else ""
+        self.last_image_file = abs_path if os.path.isfile(abs_path) else ""
+
 
 class MainToolbar(NavigationToolbar2QT):
     def __init__(self, canvas, parent, coordinates=True):
