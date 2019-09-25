@@ -470,11 +470,12 @@ class DataModel(QObject):
         each axis configuration, into linear-scale coordinates.
         
         Input and output are 2D arrays of X and Y in rows.
-        Input can also be 1D array for one point - output is always 2D.
+        Input and output can alternatively both be 1D for one point.
         
         Return value is a copy by default.
         """
         x_ax, y_ax = self.x_ax, self.y_ax
+        ndim_in = data_pts.ndim
         data_pts = np.array(data_pts, copy=False, ndmin=2)
         if x_ax.log_scale:
             if y_ax.log_scale:
