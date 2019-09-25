@@ -72,11 +72,9 @@ class DataCoordProps(QGroupBox):
         xb = self.mplw.mpl_ax.get_xbound()
         yb = self.mplw.mpl_ax.get_ybound()
         bounds_px = np.concatenate((xb, yb)).reshape(-1, 2, order="F")
-        bounds_data = self.model.px_to_data_coords(bounds_px)
-        if self.model.x_ax.log_scale():
-            bounds_data[:,0] = self.model.x_ax.log_base ** bounds_data[:,0]
-        if self.model.y_ax.log_scale():
-            bounds_data[:,1] = self.model.y_ax.log_base ** bounds_data[:,1]
+        bounds_data = self.model.px_to_data(bounds_px)
+        if bounds_data.shape[0] == 0:
+            return
         (x_min, y_min), (x_max, y_max) = bounds_data
         self.x_min_edit.setValue(x_min)
         self.x_max_edit.setValue(x_max)
@@ -90,10 +88,13 @@ class DataCoordProps(QGroupBox):
         
     @logExceptionSlot(float)
     def _set_canvas_extents(self, _): # Signal value not needed
-        x_min_max = self.x_min_edit.value(), self.x_max_edit.value()
-        y_min_max = self.y_min_edit.value(), self.y_max_edit.value()
+        xy_min = self.x_min_edit.value(), self.y_min_edit.value()
+        xy_max = self.x_max_edit.value(), self.y_max_edit.value()
+        xy_min_max = np.concatenate((xy_min, xy_max)).reshape(-1, 2)
         # Displays error message box for invalid data
-        bounds_px = self.model.px_from_data_bounds(x_min_max, y_min_max)
+        if not self.model.validate_data_pts(xy_min_max):
+            return
+        bounds_px = self.model.data_to_px(xy_min_max)
         self.mplw.set_canvas_extents(bounds_px)
 
     def _set_layout(self):
@@ -284,11 +285,11 @@ class AxConfWidget(QWidget):
         self.group_x = QGroupBox("Enter X Axis Start and End Values")
         self.btn_pick_x = StyledButton("Pick Points", self)
         self.xstart_edit = SciLineEdit(
-                model.x_ax.pts_data[0],
+                model.x_ax.sect_data[0],
                 "X Axis Start Value",
                 model.num_fmt)
         self.xend_edit = SciLineEdit(
-                model.x_ax.pts_data[1],
+                model.x_ax.sect_data[1],
                 "X Axis End Value",
                 model.num_fmt)
         self.btn_lin_x = QRadioButton("Lin")
@@ -297,11 +298,11 @@ class AxConfWidget(QWidget):
         self.group_y = QGroupBox("Enter Y Axis Start and End Values")
         self.btn_pick_y = StyledButton("Pick Points", self)
         self.ystart_edit = SciLineEdit(
-                model.y_ax.pts_data[0],
+                model.y_ax.sect_data[0],
                 "Y Axis Start Value",
                 model.num_fmt)
         self.yend_edit = SciLineEdit(
-                model.y_ax.pts_data[1],
+                model.y_ax.sect_data[1],
                 "Y Axis End Value",
                 model.num_fmt)
         self.btn_lin_y = QRadioButton("Lin")
@@ -324,7 +325,7 @@ class AxConfWidget(QWidget):
         self.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
         self.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
         self.btn_drag_axes.toggled.connect(mplw.set_drag_axes)
-        self.btn_store_config.toggled.connect(model.set_persistent_storage)
+        self.btn_store_config.toggled.connect(model.set_wants_persistent_storage)
         # Number input boxes emit float signals.
         self.xstart_edit.valid_number_entered.connect(model.x_ax.set_ax_start)
         self.ystart_edit.valid_number_entered.connect(model.y_ax.set_ax_start)
@@ -352,23 +353,23 @@ class AxConfWidget(QWidget):
     def update_model_view(self):
         x_ax = self.model.x_ax
         y_ax = self.model.y_ax
-        self.set_green_x_ax(x_ax.is_complete())
-        self.set_green_y_ax(y_ax.is_complete())
+        self.set_green_x_ax(x_ax.is_complete)
+        self.set_green_y_ax(y_ax.is_complete)
         # Update axis section value input boxes
-        self.xstart_edit.setValue(x_ax.pts_data[0])
-        self.xend_edit.setValue(x_ax.pts_data[1])
-        self.ystart_edit.setValue(y_ax.pts_data[0])
-        self.yend_edit.setValue(y_ax.pts_data[1])
+        self.xstart_edit.setValue(x_ax.sect_data[0])
+        self.xend_edit.setValue(x_ax.sect_data[1])
+        self.ystart_edit.setValue(y_ax.sect_data[0])
+        self.yend_edit.setValue(y_ax.sect_data[1])
         # Update log/lin radio buttons.
-        self.btn_lin_x.setChecked(not x_ax.log_scale())
-        self.btn_log_x.setChecked(x_ax.log_scale())
-        self.btn_lin_y.setChecked(not y_ax.log_scale())
-        self.btn_log_y.setChecked(y_ax.log_scale())
+        self.btn_lin_x.setChecked(not x_ax.log_scale)
+        self.btn_log_x.setChecked(x_ax.log_scale)
+        self.btn_lin_y.setChecked(not y_ax.log_scale)
+        self.btn_log_y.setChecked(y_ax.log_scale)
         # Pick axes points buttons
-        self.btn_pick_x.set_green(x_ax.valid_pts_px())
-        self.btn_pick_y.set_green(y_ax.valid_pts_px())
+        self.btn_pick_x.set_green(x_ax.pts_px_valid)
+        self.btn_pick_y.set_green(y_ax.pts_px_valid)
         # Store config button
-        self.btn_store_config.setChecked(self.model.persistent_storage())
+        self.btn_store_config.setChecked(self.model.wants_persistent_storage)
 
     def set_green_x_ax(self, state):
         # Background set to green when model has valid data

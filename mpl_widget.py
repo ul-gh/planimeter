@@ -11,7 +11,7 @@ import os
 import numpy as np
 from numpy import NaN, isnan
 
-from PyQt5.QtCore import pyqtSlot, pyqtSignal
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QMessageBox
 
 import matplotlib.figure
@@ -94,6 +94,8 @@ class MplWidget(QWidget):
         # FigureCanvas factory of matplotlib Qt Agg backend takes the Figure
         # object and returns the matplotlib canvas as a QWidget instance.
         self.canvas_qt = mpl_backend_qt.FigureCanvas(self.fig)
+        # QTimer used for delayed screen updates in case the canvas is resized
+        self._redraw_timer = QTimer(self, interval=500, singleShot=True)
         # Add canvas_qt to own layout
         self._set_layout()
         
@@ -106,10 +108,11 @@ class MplWidget(QWidget):
 
         ########## Initialise view from model
         self.update_model_view_axes()
-        if model.coordinate_transformation_defined():
+        if model.coordinate_transformation_defined:
             self.update_model_view_traces()
        
         ########## Connect own signals
+        # Matplotlib signals
         self.canvas_qt.mpl_connect("key_press_event", self._on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self._on_figure_enter)
         self.canvas_qt.mpl_connect("figure_leave_event", self._on_figure_leave)
@@ -117,6 +120,9 @@ class MplWidget(QWidget):
         self.canvas_qt.mpl_connect("button_release_event", self._on_button_release)
         self.canvas_qt.mpl_connect("motion_notify_event", self._on_motion_notify)
         self.canvas_qt.mpl_connect("pick_event", self._on_pick)
+        self.canvas_qt.mpl_connect("resize_event", self._on_resize)
+        # QTimer event updates the blit buffer after screen resizing
+        self._redraw_timer.timeout.connect(self._do_blit_redraw)
 
         ########## Connect foreign signals
         # Update plot view displaying axes points and origin
@@ -131,11 +137,11 @@ class MplWidget(QWidget):
     def set_drag_axes(self, state):
         self._drag_axes = state
     
-    def set_canvas_extents(self, bounds_px):
-        if bounds_px is not None:
-            x_min_max_px, y_min_max_px = bounds_px
-            self.mpl_ax.set_xbound(x_min_max_px)
-            self.mpl_ax.set_ybound(y_min_max_px)
+    def set_canvas_extents(self, bounds_px: np.array):
+        bounds_px = np.array(bounds_px, copy=False)
+        if not isnan(bounds_px).any() and bounds_px.shape == (2, 2):
+            self.mpl_ax.set_xbound(bounds_px[:,0])
+            self.mpl_ax.set_ybound(bounds_px[:,1])
             self._blit_buffer_stale = True
             self._do_blit_redraw()
 
@@ -207,13 +213,13 @@ class MplWidget(QWidget):
             self._tr_view_objs.append(tr.pts_view_obj)
             ##### STEP B: Draw or update interpolated pixel points
             # Backtransform trace to pixel data coordinate system
-            pts_i_px = model.pts_lin_i_px_coords(tr)
+            pts_i_px = model.linscale_to_px(tr.pts_linscale_i)
             if tr.pts_i_view_obj is None:
                 # Draw trace on matplotlib widget
                 tr.pts_i_view_obj, = self.mpl_ax.plot(*pts_i_px.T, **tr.pts_i_fmt)
                 self._view_model_map[tr.pts_i_view_obj] = tr.pts_i_view_obj
             else:
-                # Trace handle for pts_lin_i exists. Update data.
+                # Trace handle for pts_linscale_i exists. Update data.
                 tr.pts_i_view_obj.set_data(*pts_i_px.T)
             tr.pts_i_view_obj.set_label(f"Interpolated Points for {tr.name}")
             self._tr_view_objs.append(tr.pts_i_view_obj)
@@ -341,7 +347,7 @@ class MplWidget(QWidget):
         self._add_and_pick_point(self.model.y_ax, np.full(2, NaN))
 
     def _enter_mode_add_trace_pts(self):
-        if not self.model.axes_setup_is_complete():
+        if not self.model.axes_setup_is_complete:
             text = "You must configure the axes first!"
             logger.info(text)
             self.digitizer.show_text(text)
@@ -424,7 +430,7 @@ class MplWidget(QWidget):
                 self._add_and_pick_point(model.x_ax, px_xy)
             else:
                 # Two X-axis points set. Validate and reset op mode if valid
-                if model.x_ax.valid_pts_px():
+                if model.x_ax.pts_px_valid:
                     self.set_mode(self.MODE_DEFAULT)
             return
         ##### Add Y-axis point
@@ -435,7 +441,7 @@ class MplWidget(QWidget):
                 self._add_and_pick_point(model.y_ax, px_xy)
             else:
                 # Two X-axis points set. Validate and reset op mode if valid
-                if model.y_ax.valid_pts_px():
+                if model.y_ax.pts_px_valid:
                     self.set_mode(self.MODE_DEFAULT)
             return
         ##### Add trace point
@@ -509,14 +515,19 @@ class MplWidget(QWidget):
                 self._picked_obj_submodel.update_pt_px(
                         xy_px, self._picked_obj_pt_index)
         # Anyways, update coordinates display etc.
-        xy_data = self.model.px_to_data_coords(xy_px)
+        xy_data = self.model.px_to_data(xy_px)
+        #xy_data = self.model.px_to_linscale(xy_px)
         if xy_data.shape[0] > 0:
-            if self.model.x_ax.log_scale():
-                xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
-            if self.model.y_ax.log_scale():
-                xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
-            self.mouse_coordinates_updated.emit(*xy_data)
+        #    if self.model.x_ax.log_scale:
+        #        xy_data[0] = self.model.x_ax.log_base ** xy_data[0]
+        #    if self.model.y_ax.log_scale:
+        #        xy_data[1] = self.model.x_ax.log_base ** xy_data[1]
+            self.mouse_coordinates_updated.emit(*xy_data[0])
 
+    def _on_resize(self, _):
+        # Delayed screen redraw and blit buffer update when canvas is resized
+        self._blit_buffer_stale = True
+        self._redraw_timer.start()
 
     ########## 2D Graphics Acceleration using BLIT Methods
     # Qt AGG backend required:
@@ -545,8 +556,10 @@ class MplWidget(QWidget):
             obj.set_visible(True)
         self._blit_buffer_stale = False
 
+    @logExceptionSlot
     def _do_blit_redraw(self):
         if self._blit_buffer_stale:
+            logger.debug("Calling capture for blit redraw")
             self._capture_objs_background()
         # Restores captured object background
         self.canvas_qt.restore_region(self._blit_bg)

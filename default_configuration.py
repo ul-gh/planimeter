@@ -52,8 +52,8 @@ class DATA_MODEL():
     # Matplotlib plot keyword options as a dictionary
     origin_fmt = {"color": "c", "marker": "o", "markersize": 15.0,
                   "markerfacecolor": "none", "markeredgewidth": 2.0}
-    # Store axes configuration persistently on disk when set
-    store_ax_conf = False
+    # Store configuration persistently on disk when set
+    wants_persistent_storage = False
 
 
 class TRACE():

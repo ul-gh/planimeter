@@ -129,9 +129,9 @@ class MainWindow(QMainWindow):
         This saves current configuration and axes properties if flag is set.
         """
         # Store axis configuration if requested
-        if self.cw.model.persistent_storage():
+        if self.cw.model.wants_persistent_storage:
             logger.info("Storing axis configuration to disk..")
-            self.conf.model_conf.store_ax_conf = True
+            self.conf.model_conf.wants_persistent_storage = True
             # Getting plot configuration from Digitizer widget:
             self.conf.x_ax_state = self.cw.model.x_ax.restorable_state()
             self.conf.y_ax_state = self.cw.model.y_ax.restorable_state()
