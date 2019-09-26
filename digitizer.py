@@ -107,10 +107,11 @@ class Digitizer(QWidget):
         image.save(self.temp_filename, format="png")
         self.mplw.load_image(self.temp_filename)
 
-    @logExceptionSlot()
-    def put_clipboard(self, state):
+    @logExceptionSlot(bool)
+    def put_clipboard(self, state=True, pts_data=None):
         trace = self.model.traces[self.mplw.curr_trace_no]
-        pts_i = trace.pts_i
+        if pts_data is None:
+            pts_data = trace.pts
         if self.conf.app_conf.decimal_chr.lower() == "system":
             decimal_chr = self.locale().decimalPoint()
         else:
@@ -119,12 +120,12 @@ class Digitizer(QWidget):
         logger.info(f"Putting CSV and HTML table data into clipboard!"
                     f"Number format string used is: {num_fmt}"
                     f'==> Decimal point character used is: "{decimal_chr}" <==')
-        pts_i_csv = self._array2csv(pts_i, decimal_chr, num_fmt)
-        pts_i_html = self._array2html(pts_i, decimal_chr, num_fmt)
+        pts_csv = self._array2csv(pts_data, decimal_chr, num_fmt)
+        pts_html = self._array2html(pts_data, decimal_chr, num_fmt)
         qmd = QMimeData()
-        qmd.setData("text/csv", bytes(pts_i_csv, encoding="utf-8"))
-        qmd.setData("text/plain", bytes(pts_i_csv, encoding="utf-8"))
-        qmd.setHtml(pts_i_html)
+        qmd.setData("text/csv", bytes(pts_csv, encoding="utf-8"))
+        qmd.setData("text/plain", bytes(pts_csv, encoding="utf-8"))
+        qmd.setHtml(pts_html)
         self.clipboard.setMimeData(qmd)
 
     @logExceptionSlot(Exception)
