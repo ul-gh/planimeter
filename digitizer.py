@@ -17,7 +17,7 @@ from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
         QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QSplitter, QSizePolicy, QPlainTextEdit, QMessageBox,
-        QPushButton, QCheckBox
+        QPushButton, QCheckBox, QTabWidget,
         )
 
 from mpl_widget import MplWidget
@@ -58,14 +58,16 @@ class Digitizer(QWidget):
         self.messagebox = QMessageBox(self)
         # Matplotlib widget
         self.mplw = mplw = MplWidget(self, model)
+        # Push buttons and axis value input fields widget.
+        self.axconfw = AxConfWidget(self, model, mplw)
+        # Tab display on the right column
+        self.data_tab = QTabWidget(self)
         # Data Coordinate Display and Edit Box
         self.data_coord_props = DataCoordProps(self, model, mplw)
         # Export options box
         self.export_settings = ExportSettingsBox(self, model, mplw)
         # Traces properties are displayed in a QTableWidget
         self.tr_conf_table = TraceConfTable(self, model, mplw)
-        # Push buttons and axis value input fields widget.
-        self.axconfw = AxConfWidget(self, model, mplw)
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
@@ -167,10 +169,12 @@ class Digitizer(QWidget):
         # Right side layout just the same
         io_splitter = QSplitter(Qt.Vertical, self)
         io_splitter.setChildrenCollapsible(False)
-        io_splitter.addWidget(self.data_coord_props)
-        io_splitter.addWidget(self.export_settings)
+        io_splitter.addWidget(self.data_tab)
         io_splitter.addWidget(self.tr_conf_table)
-        io_splitter.addWidget(self.btn_console)
+        # Widgets added to data tab
+        self.data_tab.addTab(self.data_coord_props, "Canvas Extents")
+        self.data_tab.addTab(self.export_settings, "Export Settings")
+        self.data_tab.addTab(self.btn_console, "IPython Console")
         # Horizontal splitter layout is left and right side combined
         hsplitter = QSplitter(Qt.Horizontal, self)
         hsplitter.setChildrenCollapsible(False)

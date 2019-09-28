@@ -160,18 +160,32 @@ class MainWindow(QMainWindow):
 
 
 class MainToolbar(NavigationToolbar2QT):
-    def __init__(self, canvas, parent, coordinates=True):
+    # When coordinates display is enabled, this has influence on the toolbar
+    # sizeHint, which causes trouble in case of vertical orientation.
+    def __init__(self, canvas, parent, coordinates=False):
         super().__init__(canvas, parent, coordinates)
+        ########## Patch original API action buttons with new text etc:
         for act in self.actions():
             # We want to insert our buttons before the external matplotlib
             # API buttons where the "Home" is the leftmost
             if act.text() == "Home":
-                api_first_action = act
+                act.setText("Reset Zoom")
+                api_home = act
             # The matplotlib save button only saves a screenshot thus it should
             # be appropriately renamed
             if act.text() == "Save":
-                act.setText("Screenshot")
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                act.setText("Save as Image")
+                api_save = act
+            if act.text() == "Customize":
+                act.setText("Figure Options")
+                api_customize = act            
+            if act.text() in ("Back", "Forward", "Subplots"):
+                self.removeAction(act)
+        api_actions = {api_home: "Reset{}Zoom",
+                       api_save: "Save{}Image",
+                       api_customize: "Figure{}Options",
+                       }
+        ########## Define new actions
         icon_open = QIcon.fromTheme(
                 "document-open",
                 self.style().standardIcon(QStyle.SP_DialogOpenButton))
@@ -184,35 +198,55 @@ class MainToolbar(NavigationToolbar2QT):
         self.act_put_clipboard = QAction(
                 icon_send,
                 "Put to Clipboard",
-                self,
-                iconText="Put Into\nClipboard")
+                self)
         self.act_export_xlsx = QAction(
                 icon_export,
                 "Export data as XLSX",
-                self,
-                iconText="Export XLSX")
+                self)
         self.act_export_csv = QAction(
                 icon_export,
                 "Export data as CSV",
-                self,
-                iconText="Export CSV")
+                self)
         self.act_open = QAction(
                 icon_open,
                 "Open an image file",
-                self,
-                iconText="Open File")
+                self)
         self.act_load_clipboard = QAction(
                 icon_open,
                 "Load Image from Clipboard",
-                self,
-                iconText="From Clipboard")
+                self)
+        # Dict of our new actions plus text
+        self._custom_actions = {self.act_load_clipboard: "From{}Clipboard",
+                                self.act_open: "Open File",
+                                self.act_export_csv: "Export{}CSV",
+                                self.act_export_xlsx: "Export{}XLSX", 
+                                self.act_put_clipboard: "Put Into{}Clipboard",
+                                }
         # Separator before first external API buttons
-        sep = self.insertSeparator(api_first_action)
-        # Inserting new buttons
-        self.insertActions(
-                sep,
-                [self.act_load_clipboard, self.act_open, self.act_export_csv,
-                 self.act_export_xlsx, self.act_put_clipboard])
+        sep = self.insertSeparator(api_home)
+        ########## Add new actions to the toolbar
+        self.insertActions(sep, self._custom_actions.keys())
+        ########## Add original buttons to the dict of all custom actions
+        self._custom_actions.update(api_actions)
+        ########## Connect own signals
+        self.orientationChanged.connect(self._on_orientationChanged)
+        ########## Initial view setup
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._on_orientationChanged(Qt.Horizontal)
+    
+    @pyqtSlot(Qt.Orientation)
+    def _on_orientationChanged(self, new_orientation):
+        logger.debug("Main Toolbar orientation change handler called")
+        if new_orientation == Qt.Horizontal:
+            self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            # Set text without line break
+            for act, text in self._custom_actions.items():
+                act.setIconText(text.format(" "))
+        else:
+            self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            # Set text with line break
+            for act, text in self._custom_actions.items():
+                act.setIconText(text.format("\n"))
 
 
 if __name__ == "__main__":

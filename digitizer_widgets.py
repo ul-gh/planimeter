@@ -17,10 +17,11 @@ from PyQt5.QtGui import QDoubleValidator
 from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QMessageBox,
         QGroupBox, QLabel, QPushButton, QRadioButton, QCheckBox, QComboBox,
-        QTableWidget, QTableWidgetItem, QSizePolicy
+        QTableWidget, QTableWidgetItem, QSizePolicy,
         )
 
 from upylib.pyqt_debug import logExceptionSlot
+
 
 
 class DataCoordProps(QGroupBox):
