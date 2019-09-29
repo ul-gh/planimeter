@@ -146,6 +146,22 @@ class MplWidget(QWidget):
             self._do_blit_redraw()
 
     ########## Data Input Methods
+    @logExceptionSlot(int, bool)
+    def enable_trace(self, trace_no, state=True):
+        trace = self.model.traces[trace_no]
+        trace.pts_view_obj.set_visible(state)
+        trace.pts_i_view_obj.set_visible(state)
+        self._blit_buffer_stale = True
+        self.update_model_view_traces(trace_no)
+
+    @logExceptionSlot()
+    def update_model_view(self):
+        """Complete update of axes and traces features from model data
+        """
+        self.update_model_view_axes()
+        self._blit_buffer_stale = True
+        self.update_model_view_traces()
+    
     @logExceptionSlot()
     def update_model_view_axes(self):
         """Updates axes model features displayed in plot widget,
@@ -257,15 +273,15 @@ class MplWidget(QWidget):
         # Complete canvas redraw
         self.canvas_qt.draw()
         self.mpl_ax.autoscale(enable=False)
-        #self.update_model_view_axes()
-        #self.update_model_view_traces()
         self.canvas_rescaled.emit(self._op_mode)
-        self.update_model_view_axes()
-        self._blit_buffer_stale = True
-        self.update_model_view_traces()
+        self.update_model_view()
 
 
     ########## Data Output Methods
+    def is_enabled_trace(self, trace_no: int) -> bool:
+        tr = self.model.traces[trace_no]
+        return tr.pts_view_obj.get_visible() or tr.pts_i_view_obj.get_visible()
+
     def print_model_view_items(self):
         """Prints info about the currently plotted view items
         """
@@ -537,12 +553,18 @@ class MplWidget(QWidget):
                         self._picked_obj_submodel.pts_i_view_obj]
             elif isinstance(self._picked_obj_submodel, Axis):
                 # Changing axes points changes all traces.
-                # We need to capture all traces.
-                self._blit_view_objs = self._view_model_map.keys()
+                # We need to capture all visible traces.
+                self._blit_view_objs = [
+                        obj for obj in self._view_model_map.keys()
+                        if obj.get_visible()
+                        ]
             else:
                 self._blit_view_objs = [self._picked_obj]
         else:
-            self._blit_view_objs = self._view_model_map.keys()
+            self._blit_view_objs = [
+                        obj for obj in self._view_model_map.keys()
+                        if obj.get_visible()
+                        ]
         for obj in self._blit_view_objs:
             obj.set_visible(False)
         self.canvas_qt.draw()

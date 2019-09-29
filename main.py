@@ -233,6 +233,14 @@ class MainToolbar(NavigationToolbar2QT):
         ########## Initial view setup
         self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self._on_orientationChanged(Qt.Horizontal)
+        #self.setIconSize(self.iconSize() * 0.8)
+        self.setStyleSheet("spacing:2px")
+        
+
+    def sizeHint(self):
+        # Matplotlib returns a minimum of 48 by default, we don't want this
+        # size.setHeight(max(48, size.height()))
+        return super(NavigationToolbar2QT, self).sizeHint()
     
     @pyqtSlot(Qt.Orientation)
     def _on_orientationChanged(self, new_orientation):
@@ -285,5 +293,6 @@ if __name__ == "__main__":
             # Launch embedded IPython Kernel and start GUI event loop
             mainw.ipyconsole.start_ipython_kernel(locals(), gui="qt5")
     except ImportError:
+        # Run normal Qt app without any IPython integration
         sys.exit(app.exec_())
 

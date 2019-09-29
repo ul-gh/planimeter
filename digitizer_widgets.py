@@ -178,13 +178,15 @@ class TraceConfTable(QTableWidget):
     def __init__(self, digitizer, model, mplw):
         self.model = model
         self.mplw = mplw
-        headers = ["Name", "Pick Points", "Export", "X Start", "X End",
-                   "Interpolation", "N Points"]
+        headers = ["Name", "Pick Points", "Enable", "Export",
+                   "X Start", "X End"]
         self.col_xstart = headers.index("X Start")
         self.col_xend = headers.index("X End")
         n_traces = len(digitizer.model.traces)
         n_headers = len(headers)
         self.btns_pick_trace = []
+        self.cbs_export = []
+        self.cbs_enable = []
         super().__init__(n_traces, n_headers, digitizer)
 #        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
         self.setHorizontalHeaderLabels(headers)
@@ -199,7 +201,10 @@ class TraceConfTable(QTableWidget):
             name = QTableWidgetItem(tr.name)
             btn_pick_trace = NumberedButton(row, f"Pick Trace {row+1}", self)
             self.btns_pick_trace.append(btn_pick_trace)
-            checkbox_export = CenteredCheckbox(self)
+            cb_export = NumberedCenteredCheckbox(row, self)
+            self.cbs_export.append(cb_export)
+            cb_enable = NumberedCenteredCheckbox(row, self)
+            self.cbs_enable.append(cb_enable)
             #x_start = QTableWidgetItem(f"{tr.x_start_export}")
             #x_end = QTableWidgetItem(f"{tr.x_end_export}")
             combo_i_type = QComboBox(self)
@@ -208,11 +213,15 @@ class TraceConfTable(QTableWidget):
             combo_n_interp.addItems(n_interp_presets_text)
             self.setItem(row, 0, name)
             self.setCellWidget(row, 1, btn_pick_trace)
-            self.setCellWidget(row, 2, checkbox_export)
-            #self.setItem(row, 3, x_start)
-            #self.setItem(row, 4, x_end)
+            self.setCellWidget(row, 2, cb_enable)
+            self.setCellWidget(row, 3, cb_export)
+            #self.setItem(row, 4, x_start)
+            #self.setItem(row, 5, x_end)
             self.setCellWidget(row, 5, combo_i_type)
             self.setCellWidget(row, 6, combo_n_interp)
+            ##### Signals
+            cb_export.i_toggled.connect(self.set_export)
+            cb_enable.i_toggled.connect(self.mplw.enable_trace)
 
         ########## Initialise view from model
         self.update_model_view()
@@ -231,16 +240,21 @@ class TraceConfTable(QTableWidget):
 
     @logExceptionSlot()
     def update_model_view(self):
-        pass
+        for i, trace in enumerate(self.model.traces):
+            self.cbs_export[i].setChecked(trace.export)
 
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
-        if op_mode == self.mplw.MODE_ADD_TRACE_PTS:
-            for i, btn in enumerate(self.btns_pick_trace):
-                btn.setChecked(i == self.mplw.curr_trace_no)
-        else:
-            for btn in self.btns_pick_trace:
-                btn.setChecked(False)
+        for i, trace in enumerate(self.model.traces):
+            self.btns_pick_trace[i].setChecked(
+                    i == self.mplw.curr_trace_no
+                    and op_mode == self.mplw.MODE_ADD_TRACE_PTS)
+            self.cbs_enable[i].setChecked(self.mplw.is_enabled_trace(i))
+
+    @logExceptionSlot(int, bool)
+    def set_export(self, trace_no, state=True):
+        trace = self.model.traces[trace_no]
+        trace.export = state
 
 #    def _handle_selection(self):
 #        self.sel_traces = sel_traces = {
@@ -389,7 +403,8 @@ class AxConfWidget(QWidget):
         group_x_layout.addWidget(self.xend_edit)
         group_x_layout.addWidget(self.btn_lin_x)
         group_x_layout.addWidget(self.btn_log_x)
-        group_x_layout.addWidget(self.btn_pick_x)        
+        group_x_layout.addWidget(self.btn_pick_x)
+        group_x_layout.setContentsMargins(6, 0, 6, 6)
         # Group Y layout
         group_y_layout = QHBoxLayout(self.group_y)
         group_y_layout.addWidget(self.ystart_edit)
@@ -397,6 +412,7 @@ class AxConfWidget(QWidget):
         group_y_layout.addWidget(self.btn_lin_y)
         group_y_layout.addWidget(self.btn_log_y)
         group_y_layout.addWidget(self.btn_pick_y)
+        group_y_layout.setContentsMargins(6, 0, 6, 6)
         # Common setings box
         common_btns_layout = QVBoxLayout()
         common_btns_layout.addWidget(self.btn_store_config)
@@ -406,7 +422,7 @@ class AxConfWidget(QWidget):
         axconfw_layout.addWidget(self.group_x)
         axconfw_layout.addWidget(self.group_y)
         axconfw_layout.addLayout(common_btns_layout)
-
+        axconfw_layout.setContentsMargins(0, 0, 0, 0)
 
 ########## Custom Widgets Used Above
 class StyledButton(QPushButton):
@@ -435,9 +451,7 @@ class NumberedButton(StyledButton):
     def __init__(self, index, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._index = index
-        self.toggled.connect(
-                partial(self.i_toggled.emit, index)
-                )
+        self.toggled.connect(partial(self.i_toggled.emit, index))
 
     def index(self) ->int:
         return self._index
@@ -490,16 +504,31 @@ class SciLineEdit(QLineEdit):
         self.valid_number_entered.emit(self._value)
 
 
-class CenteredCheckbox(QWidget):
+class NumberedCenteredCheckbox(QWidget):
     # This is a checkbox inside a QWidget to get centered alignment - see:
     # https://bugreports.qt.io/browse/QTBUG-5368
-    def __init__(self, parent):
+    i_toggled = pyqtSignal(int, bool)
+
+    def __init__(self, index, parent, *args, **kwargs):
         super().__init__(parent)
-        self.cbox = QCheckBox(self, checked=True)
+        self._index = index
+        self.cbox = QCheckBox(self, *args, **kwargs)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.cbox)
+        self.cbox.toggled.connect(partial(self.i_toggled.emit, index))
 
     def isChecked(self):
         return self.cbox.isChecked()
+    
+    @pyqtSlot(bool)
+    def setChecked(self, state):
+        self.cbox.setChecked(state)
+
+    def index(self) ->int:
+        return self._index
+
+    @pyqtSlot(int)
+    def setIndex(self, index: int):
+        self._index = index
