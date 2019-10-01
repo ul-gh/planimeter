@@ -166,20 +166,21 @@ class MainToolbar(NavigationToolbar2QT):
         super().__init__(canvas, parent, coordinates)
         ########## Patch original API action buttons with new text etc:
         for act in self.actions():
+            text = act.text()
             # We want to insert our buttons before the external matplotlib
             # API buttons where the "Home" is the leftmost
-            if act.text() == "Home":
+            if text == "Home":
                 act.setText("Reset Zoom")
                 api_home = act
             # The matplotlib save button only saves a screenshot thus it should
             # be appropriately renamed
-            if act.text() == "Save":
+            elif text == "Save":
                 act.setText("Save as Image")
                 api_save = act
-            if act.text() == "Customize":
+            elif text == "Customize":
                 act.setText("Figure Options")
                 api_customize = act            
-            if act.text() in ("Back", "Forward", "Subplots"):
+            elif text in ("Back", "Forward", "Subplots"):
                 self.removeAction(act)
         api_actions = {api_home: "Reset{}Zoom",
                        api_save: "Save{}Image",

@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 
 from mpl_widget import MplWidget
 from digitizer_widgets import (
-        AxConfWidget, TraceConfTable, ExportSettingsBox, DataCoordProps,
+        CoordinateSystemTab, TraceDataModelTab, ExportSettingsBox,
         )
 from plot_model import DataModel
 
@@ -58,16 +58,14 @@ class Digitizer(QWidget):
         self.messagebox = QMessageBox(self)
         # Matplotlib widget
         self.mplw = mplw = MplWidget(self, model)
-        # Push buttons and axis value input fields widget.
-        self.axconfw = AxConfWidget(self, model, mplw)
         # Tab display on the right column
-        self.data_tab = QTabWidget(self)
-        # Data Coordinate Display and Edit Box
-        self.data_coord_props = DataCoordProps(self, model, mplw)
+        self.tabs = QTabWidget(self)
+        # Push buttons and axis value input fields widget.
+        self.tab_coordinate_system = CoordinateSystemTab(self, model, mplw)
+        # Trace Data Model tab
+        self.tab_trace_data_model = TraceDataModelTab(self, model, mplw)
         # Export options box
-        self.export_settings = ExportSettingsBox(self, model, mplw)
-        # Traces properties are displayed in a QTableWidget
-        self.tr_conf_table = TraceConfTable(self, model, mplw)
+        self.tab_export_settings = ExportSettingsBox(self, model, mplw)
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
@@ -156,30 +154,20 @@ class Digitizer(QWidget):
     def _set_layout(self):
         # Resizing policy arranges the widgets with sane preset positions
         self._set_v_stretch(self.mplw, 1)
-        self._set_v_stretch(self.data_coord_props, 0)
-        self._set_v_stretch(self.export_settings, 0)
-        self._set_v_stretch(self.tr_conf_table, 1)
-        self._set_v_stretch(self.axconfw, 0)
+        self._set_v_stretch(self.tab_coordinate_system, 0)
+        self._set_v_stretch(self.tab_trace_data_model, 1)
+        self._set_v_stretch(self.tab_export_settings, 0)
         self._set_v_stretch(self.btn_console, 0)
-        # Left side layout is vertical widgets, divided by a splitter
-        mplw_splitter = QSplitter(Qt.Vertical, self)
-        mplw_splitter.setChildrenCollapsible(False)
-        mplw_splitter.addWidget(self.axconfw)
-        mplw_splitter.addWidget(self.mplw)
-        # Right side layout just the same
-        io_splitter = QSplitter(Qt.Vertical, self)
-        io_splitter.setChildrenCollapsible(False)
-        io_splitter.addWidget(self.data_tab)
-        io_splitter.addWidget(self.tr_conf_table)
-        # Widgets added to data tab
-        self.data_tab.addTab(self.data_coord_props, "Canvas Extents")
-        self.data_tab.addTab(self.export_settings, "Export Settings")
-        self.data_tab.addTab(self.btn_console, "IPython Console")
+        
+        self.tabs.addTab(self.tab_coordinate_system, "Coordinate System")
+        self.tabs.addTab(self.tab_trace_data_model, "Traces Data Model")
+        self.tabs.addTab(self.tab_export_settings, "Export Settings")
+        self.tabs.addTab(self.btn_console, "IPython Console")
         # Horizontal splitter layout is left and right side combined
         hsplitter = QSplitter(Qt.Horizontal, self)
         hsplitter.setChildrenCollapsible(False)
-        hsplitter.addWidget(mplw_splitter)
-        hsplitter.addWidget(io_splitter)
+        hsplitter.addWidget(self.mplw)
+        hsplitter.addWidget(self.tabs)
         # All combined
         digitizer_layout = QHBoxLayout(self)
         digitizer_layout.addWidget(hsplitter)

@@ -12,7 +12,8 @@ import numpy as np
 from numpy import NaN, isnan
 
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QTimer
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QMessageBox
+from PyQt5.QtWidgets import (
+        QWidget, QVBoxLayout, QHBoxLayout, QMessageBox, QLabel)
 
 import matplotlib.figure
 import matplotlib.image
@@ -20,6 +21,7 @@ import matplotlib.image
 import matplotlib.backends.backend_qt5agg as mpl_backend_qt
 
 from plot_model import Trace, Axis
+from digitizer_widgets import SciLineEdit
 from upylib.pyqt_debug import logExceptionSlot
 
 
@@ -96,6 +98,8 @@ class MplWidget(QWidget):
         self.canvas_qt = mpl_backend_qt.FigureCanvas(self.fig)
         # QTimer used for delayed screen updates in case the canvas is resized
         self._redraw_timer = QTimer(self, interval=500, singleShot=True)
+        # Data coordinate display box displayed above plot canvas
+        self._setup_coordinates_display()
         # Add canvas_qt to own layout
         self._set_layout()
         
@@ -587,9 +591,30 @@ class MplWidget(QWidget):
         # this seems to implement double-buffering
         self.canvas_qt.blit(self.mpl_ax.bbox)
 
+
+    def _setup_coordinates_display(self):
+        self.cursor_xy_label = QLabel("Cursor X and Y data coordinates:")
+        self.cursor_x_display = SciLineEdit()
+        self.cursor_y_display = SciLineEdit()
+        self.cursor_x_display.setReadOnly(True)
+        self.cursor_y_display.setReadOnly(True)
+        self.cursor_x_display.setStyleSheet("background-color: LightGrey")
+        self.cursor_y_display.setStyleSheet("background-color: LightGrey")
+        self.mouse_coordinates_updated.connect(self._update_xy_display)
+
+    @logExceptionSlot(float, float)
+    def _update_xy_display(self, px_x: float, px_y: float):
+        self.cursor_x_display.setValue(px_x)
+        self.cursor_y_display.setValue(px_y)
+
     # Layout has only the matplotlib Qt AGG backend as a widget (canvas_qt)
     def _set_layout(self):
         self.setMinimumHeight(self.conf.app_conf.min_plotwin_height)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 6, 0)
+        coords_hbox = QHBoxLayout()
+        coords_hbox.addWidget(self.cursor_xy_label)
+        coords_hbox.addWidget(self.cursor_x_display)
+        coords_hbox.addWidget(self.cursor_y_display)
+        layout.addLayout(coords_hbox)
         layout.addWidget(self.canvas_qt)
