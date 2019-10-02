@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 
 from mpl_widget import MplWidget
 from digitizer_widgets import (
-        CoordinateSystemTab, TraceDataModelTab, ExportSettingsBox,
+        CoordinateSystemTab, TraceDataModelTab, ExportSettingsTab,
         )
 from plot_model import DataModel
 
@@ -65,7 +65,7 @@ class Digitizer(QWidget):
         # Trace Data Model tab
         self.tab_trace_data_model = TraceDataModelTab(self, model, mplw)
         # Export options box
-        self.tab_export_settings = ExportSettingsBox(self, model, mplw)
+        self.tab_export_settings = ExportSettingsTab(self, model, mplw)
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)

@@ -616,5 +616,6 @@ class MplWidget(QWidget):
         coords_hbox.addWidget(self.cursor_xy_label)
         coords_hbox.addWidget(self.cursor_x_display)
         coords_hbox.addWidget(self.cursor_y_display)
+        coords_hbox.addStretch(1)
         layout.addLayout(coords_hbox)
         layout.addWidget(self.canvas_qt)
