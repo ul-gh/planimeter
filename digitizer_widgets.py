@@ -507,13 +507,9 @@ class ExportSettingsTab(QGroupBox):
         layout.addWidget(self.lbl_export_range, 8, 0, 2, 3)
         layout.addWidget(self.edit_x_start_export, 8, 3, 2, 2)
         layout.addWidget(self.edit_x_end_export, 8, 5, 2, 2)
-        # Row 10
-        layout.addItem(QSpacerItem(10, 10), 10, 0, 1, 7)
-        # Stretch factor adjustment such that the last row expands filling
-        # up empty space at the bottom
-        #for row in range(layout.rowCount() - 2):
-        #    layout.setRowStretch(row, 1)
-        layout.setRowStretch(layout.rowCount() - 1, 1)
+        # Row 10: Empty row with stretch factor adjustment,
+        # such that last row fills up empty space at the bottom
+        layout.setRowStretch(layout.rowCount(), 1)
 
 
 ########## Custom Widgets Used Above
