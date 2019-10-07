@@ -32,7 +32,9 @@ from upylib.pyqt_debug import logExceptionSlot
 class Digitizer(QWidget):
     """PyQt5 widget for GUI interactive plot digitizing.
 
-    This is:
+    This class assembles the main components:
+        * Data model of plot data, physical data representation and
+          associated data manipulation and export functions
         * A matplotlib based view component providing
           plot and graphic displa/y with mouse interaction
         * Various text and button input widgets for setting model properties

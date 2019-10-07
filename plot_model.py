@@ -7,8 +7,8 @@ License: GPL version 3
 import logging
 logger = logging.getLogger(__name__)
 
+import inspect
 from functools import partial
-
 from typing import Iterable
 
 import numpy as np
@@ -21,6 +21,8 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 import matplotlib.pyplot as plt
 import upylib.u_plot_format as u_format
+
+import physical_models
 
 from upylib.pyqt_debug import logExceptionSlot
 
@@ -74,6 +76,15 @@ class DataModel(QObject):
     def __init__(self, parent, conf):
         super().__init__(parent)
         ########## Plot model composition
+        ##### Physical meaning of data, sub-model with export functions etc.
+        # List of physical model specialised class objects,
+        # all imported from physical_models.py
+        self.phys_classes = [
+                member[1] for member
+                in inspect.getmembers(physical_models, inspect.isclass)
+                if member[1].__module__ == physical_models.__name__
+                ]
+        self.phys_names = [phys_class.name for phys_class in self.phys_classes]
 
         ##### Two axes
         self.x_ax = Axis(self, conf.x_ax_conf, "X Axis")
