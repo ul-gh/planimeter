@@ -51,6 +51,14 @@ class Digitizer(QWidget):
                 f"plot_workbench_clipboard_paste_image.png"
                 )
 
+        # List of physical model specialised class objects,
+        # all imported from physical_models.py
+        self.phys_models = [
+                member[1] for member
+                in inspect.getmembers(physical_models, inspect.isclass)
+                if member[1].__module__ == physical_models.__name__
+                ]
+        self.phys_model_names = [model.name for model in self.phys_models]
         # Plot interactive data model
         self.model = model = DataModel(self, conf)
         # System clipboard access
