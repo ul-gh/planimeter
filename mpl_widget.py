@@ -117,8 +117,8 @@ class MplWidget(QWidget):
         self.mpl_ax = self.fig.add_subplot(111, autoscale_on=False)
         self.mpl_ax.xaxis.set_visible(False)
         self.mpl_ax.yaxis.set_visible(False)
-        # After removing axis visibility, reset matplotlib layout to fill space
-        self.fig.tight_layout(pad=0, rect=(0.001, 0.002, 0.999, 0.999))
+        # Set matplotlib layout to fill space, with some margin for borders
+        self.fig.subplots_adjust(0.001, 0.001, 0.999, 0.999)
 
         ########## Initialise view from model
         self.update_model_view_axes()
@@ -626,8 +626,10 @@ class MplWidget(QWidget):
         self.cursor_y_display = SciLineEdit()
         self.cursor_x_display.setReadOnly(True)
         self.cursor_y_display.setReadOnly(True)
-        self.cursor_x_display.setStyleSheet("background-color: LightGrey")
-        self.cursor_y_display.setStyleSheet("background-color: LightGrey")
+        self.cursor_x_display.setStyleSheet(
+                "padding-top: -2px; padding-bottom: -1px; background-color: LightGrey")
+        self.cursor_y_display.setStyleSheet(
+                "padding-top: -2px; padding-bottom: -1px; background-color: LightGrey")
         self.mouse_coordinates_updated.connect(self._update_xy_display)
 
     @logExceptionSlot(float, float)
@@ -639,12 +641,13 @@ class MplWidget(QWidget):
     def _set_layout(self):
         self.setMinimumHeight(self.conf.app_conf.min_plotwin_height)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 6, 0)
+        layout.setContentsMargins(1, 1, 2, 1)
+        layout.setSpacing(2)
         self.coords_hbox = coords_hbox = QHBoxLayout()
+        coords_hbox.addStretch(1)
         coords_hbox.addWidget(self.cursor_xy_label)
         coords_hbox.addWidget(self.cursor_x_display)
         coords_hbox.addWidget(self.cursor_y_display)
-        coords_hbox.addStretch(1)
         layout.addLayout(coords_hbox)
         layout.addWidget(self.canvas_qt)
 
