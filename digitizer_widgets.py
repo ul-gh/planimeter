@@ -10,14 +10,15 @@ logger = logging.getLogger(__name__)
 
 from functools import partial
 import numpy as np
-from numpy import NaN, isclose, isnan
+from numpy import NaN, isnan
 
 from PyQt5.QtCore import Qt, QLocale, pyqtSlot, pyqtSignal
-from PyQt5.QtGui import QDoubleValidator, QIntValidator
+from PyQt5.QtGui import QDoubleValidator, QIntValidator, QIcon
 from PyQt5.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QMessageBox,
+        QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit,
         QGroupBox, QLabel, QPushButton, QRadioButton, QCheckBox, QComboBox,
-        QTableWidget, QTableWidgetItem, QSizePolicy, QSpacerItem
+        QTableWidget, QTableWidgetItem, QToolBar,
+        QStyle, QAction, 
         )
 
 from upylib.pyqt_debug import logExceptionSlot
@@ -329,7 +330,7 @@ class TraceConfTable(QTableWidget):
                    "X Start", "X End"]
         self.col_xstart = headers.index("X Start")
         self.col_xend = headers.index("X End")
-        n_traces = len(digitizer.model.traces)
+        n_traces = len(model.traces)
         n_headers = len(headers)
         self.btns_pick_trace = []
         self.cbs_export = []
@@ -553,6 +554,59 @@ class ExportSettingsTab(QWidget):
         l_outer.addLayout(l_lower)
         # Fill up empty space to the bottom
         l_outer.addStretch(1)
+
+########## Digitizer Toolbar
+class DigitizerToolBar(QToolBar):
+    def __init__(self, parent):
+        super().__init__(parent)
+        ########## Define new actions
+        icon_export = QIcon.fromTheme(
+                "document-save",
+                self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        icon_send = QIcon.fromTheme(
+                "document-send",
+                self.style().standardIcon(QStyle.SP_ComputerIcon))
+        self.act_put_clipboard = QAction(
+                icon_send,
+                "Put to Clipboard",
+                self)
+        self.act_export_xlsx = QAction(
+                icon_export,
+                "Export data as XLSX",
+                self)
+        self.act_export_csv = QAction(
+                icon_export,
+                "Export data as CSV",
+                self)
+        # Dict of our new actions plus text
+        self._actions = {self.act_export_csv: "Export{}CSV",
+                         self.act_export_xlsx: "Export{}XLSX", 
+                         self.act_put_clipboard: "Put Into{}Clipboard",
+                         }
+        ########## Add new actions to the toolbar
+        self.addActions(self._actions.keys())
+        ########## Connect own signals
+        self.orientationChanged.connect(self._on_orientationChanged)
+        ########## Initial view setup
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._on_orientationChanged(Qt.Horizontal)
+        #self.setIconSize(self.iconSize() * 0.8)
+        self.setStyleSheet("spacing:2px")
+
+    
+    @pyqtSlot(Qt.Orientation)
+    def _on_orientationChanged(self, new_orientation):
+        logger.debug("Digitizer Toolbar orientation change handler called")
+        if new_orientation == Qt.Horizontal:
+            self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            # Set text without line break
+            for act, text in self._actions.items():
+                act.setIconText(text.format(" "))
+        else:
+            self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            # Set text with line break
+            for act, text in self._actions.items():
+                act.setIconText(text.format("\n"))
 
 
 ########## Custom Widgets Used Above

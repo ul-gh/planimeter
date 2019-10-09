@@ -8,17 +8,21 @@ import logging
 logger = logging.getLogger(__name__)
 
 import os
+import tempfile
 import numpy as np
 from numpy import NaN, isnan
 
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QTimer
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
-        QWidget, QVBoxLayout, QHBoxLayout, QMessageBox, QLabel)
+        QWidget, QVBoxLayout, QHBoxLayout, QMessageBox, QLabel, QFileDialog,
+        QAction, QStyle, 
+        )
 
 import matplotlib.figure
 import matplotlib.image
 #from matplotlib.patches import Polygon
-import matplotlib.backends.backend_qt5agg as mpl_backend_qt
+from matplotlib.backends.backend_qt5agg import FigureCanvas, NavigationToolbar2QT
 
 from plot_model import Trace, Axis
 from digitizer_widgets import SciLineEdit
@@ -63,7 +67,8 @@ class MplWidget(QWidget):
         super().__init__(digitizer)
         self.digitizer = digitizer
         self.conf = digitizer.conf
-        
+        # System clipboard access
+        self.clipboard = digitizer.clipboard
         ########## Access to the data model
         self.model = model
         ########## View-Model-Mapping
@@ -95,7 +100,12 @@ class MplWidget(QWidget):
         ########## Qt widget setup
         # FigureCanvas factory of matplotlib Qt Agg backend takes the Figure
         # object and returns the matplotlib canvas as a QWidget instance.
-        self.canvas_qt = mpl_backend_qt.FigureCanvas(self.fig)
+        self.canvas_qt = FigureCanvas(self.fig)
+        # Toolbar to be used in Main Window
+        self.mpl_toolbar = MplToolbar(self.canvas_qt, self)
+        # Custom Dialog
+        self.dlg_open_image_file = QFileDialog(
+                self, "Open Source Image", digitizer.wdir, "Images (*.png *.jpg *.jpeg)")
         # QTimer used for delayed screen updates in case the canvas is resized
         self._redraw_timer = QTimer(self, interval=500, singleShot=True)
         # Data coordinate display box displayed above plot canvas
@@ -116,6 +126,10 @@ class MplWidget(QWidget):
             self.update_model_view_traces()
        
         ########## Connect own signals
+        self.mpl_toolbar.act_open_file.triggered.connect(self.dlg_open_image_file.open)
+        self.mpl_toolbar.act_load_clipboard.triggered.connect(self.load_clipboard_image)
+        self.dlg_open_image_file.fileSelected.connect(self.load_image_file)
+        self.dlg_open_image_file.directoryEntered.connect(self.digitizer.set_wdir)
         # Matplotlib signals
         self.canvas_qt.mpl_connect("key_press_event", self._on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self._on_figure_enter)
@@ -248,7 +262,7 @@ class MplWidget(QWidget):
 
 
     @logExceptionSlot(str)
-    def load_image(self, filename):
+    def load_image_file(self, filename):
         """Load source/input image for digitizing.
         """
         logger.debug(f"load_image called with argument: {filename}")
@@ -279,6 +293,20 @@ class MplWidget(QWidget):
         self.mpl_ax.autoscale(enable=False)
         self.canvas_rescaled.emit(self._op_mode)
         self.update_model_view()
+
+
+    @logExceptionSlot()
+    def load_clipboard_image(self, state):
+        # Filename for temporary storage of clipboard images
+        self.temp_filename = os.path.join(
+                tempfile.gettempdir(),
+                f"Clipboard Paste Image for {self.model.name}.png")
+        image = self.clipboard.image()
+        if image.isNull():
+            self.digitizer.show_text("No image data found in system clipboard!")
+            return
+        image.save(self.temp_filename, format="png")
+        self.load_image_file(self.temp_filename)
 
 
     ########## Data Output Methods
@@ -612,10 +640,88 @@ class MplWidget(QWidget):
         self.setMinimumHeight(self.conf.app_conf.min_plotwin_height)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 6, 0)
-        coords_hbox = QHBoxLayout()
+        self.coords_hbox = coords_hbox = QHBoxLayout()
         coords_hbox.addWidget(self.cursor_xy_label)
         coords_hbox.addWidget(self.cursor_x_display)
         coords_hbox.addWidget(self.cursor_y_display)
         coords_hbox.addStretch(1)
         layout.addLayout(coords_hbox)
         layout.addWidget(self.canvas_qt)
+
+
+class MplToolbar(NavigationToolbar2QT): 
+    def __init__(self, canvas, parent):
+        # When coordinates display is enabled, this influences the toolbar
+        # sizeHint, causing trouble in case of vertical toolbar orientation.
+        # Also, we use an own coordinate display box. Thus setting to False.
+        super().__init__(canvas, parent, coordinates=False)
+        ########## Patch original API action buttons with new text etc:
+        for act in self.actions():
+            text = act.text()
+            # We want to insert our buttons before the external matplotlib
+            # API buttons where the "Home" is the leftmost
+            if text == "Home":
+                act.setText("Reset Zoom")
+                api_home = act
+            # The matplotlib save button only saves a screenshot thus it should
+            # be appropriately renamed
+            elif text == "Save":
+                act.setText("Save as Image")
+                api_save = act
+            elif text == "Customize":
+                act.setText("Figure Options")
+                api_customize = act            
+            elif text in ("Back", "Forward", "Subplots"):
+                self.removeAction(act)
+        api_actions = {api_home: "Reset{}Zoom",
+                       api_save: "Save{}Image",
+                       api_customize: "Figure{}Options",
+                       }
+        ########## Define new actions
+        icon_open = QIcon.fromTheme(
+                "document-open",
+                self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        self.act_open_file = QAction(
+                icon_open,
+                "Open an image file",
+                self)
+        self.act_load_clipboard = QAction(
+                icon_open,
+                "Load Image from Clipboard",
+                self)
+        # Dict of our new actions plus text
+        self._custom_actions = {self.act_load_clipboard: "From{}Clipboard",
+                                self.act_open_file: "Open File",
+                                }
+        # Separator before first external API buttons
+        sep = self.insertSeparator(api_home)
+        ########## Add new actions to the toolbar
+        self.insertActions(sep, self._custom_actions.keys())
+        ########## Add original buttons to the dict of all custom actions
+        self._custom_actions.update(api_actions)
+        ########## Connect own signals
+        self.orientationChanged.connect(self._on_orientationChanged)
+        ########## Initial view setup
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._on_orientationChanged(Qt.Horizontal)
+        #self.setIconSize(self.iconSize() * 0.8)
+        self.setStyleSheet("spacing:2px")
+
+    def sizeHint(self):
+        # Matplotlib returns a minimum of 48 by default, we don't want this
+        # size.setHeight(max(48, size.height()))
+        return super(NavigationToolbar2QT, self).sizeHint()
+    
+    @pyqtSlot(Qt.Orientation)
+    def _on_orientationChanged(self, new_orientation):
+        logger.debug("Main Toolbar orientation change handler called")
+        if new_orientation == Qt.Horizontal:
+            self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            # Set text without line break
+            for act, text in self._custom_actions.items():
+                act.setIconText(text.format(" "))
+        else:
+            self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            # Set text with line break
+            for act, text in self._custom_actions.items():
+                act.setIconText(text.format("\n"))

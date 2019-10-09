@@ -10,21 +10,24 @@ logger = logging.getLogger(__name__)
 import io
 import os
 import tempfile
+import inspect
 
 import numpy as np
 
-from PyQt5.QtCore import Qt, QMimeData, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, QDir, QMimeData, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
         QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QSplitter, QSizePolicy, QPlainTextEdit, QMessageBox,
-        QPushButton, QCheckBox, QTabWidget,
+        QPushButton, QCheckBox, QTabWidget, QFileDialog
         )
 
 from mpl_widget import MplWidget
 from digitizer_widgets import (
         CoordinateSystemTab, TraceDataModelTab, ExportSettingsTab,
+        DigitizerToolBar,
         )
-from plot_model import DataModel
+from plot_model import PlotModel
+import physical_models
 
 from upylib.pyqt_debug import logExceptionSlot
 
@@ -36,7 +39,7 @@ class Digitizer(QWidget):
         * Data model of plot data, physical data representation and
           associated data manipulation and export functions
         * A matplotlib based view component providing
-          plot and graphic displa/y with mouse interaction
+          plot and graphic display with mouse interaction
         * Various text and button input widgets for setting model properties
         * Clipboard access and file import/export functions
     
@@ -44,13 +47,12 @@ class Digitizer(QWidget):
     """
     def __init__(self, mainw, conf):
         super().__init__(mainw)
+        self.mainw = mainw
         self.conf = conf
-        # Filename for temporary storage of clipboard images
-        self.temp_filename = os.path.join(
-                tempfile.gettempdir(),
-                f"plot_workbench_clipboard_paste_image.png"
-                )
-
+        self.set_wdir(conf.app_conf.wdir)
+        
+        # Current plot index, used for mplw tabs and model indexing
+        self.current_plot_index = 0
         # List of physical model specialised class objects,
         # all imported from physical_models.py
         self.phys_models = [
@@ -59,31 +61,64 @@ class Digitizer(QWidget):
                 if member[1].__module__ == physical_models.__name__
                 ]
         self.phys_model_names = [model.name for model in self.phys_models]
-        # Plot interactive data model
-        self.model = model = DataModel(self, conf)
+
+        # self.model = physical_models.Custom(self, conf)
+        self.model = physical_models.MosfetDynamic(self, conf)
         # System clipboard access
         self.clipboard = QApplication.instance().clipboard()
         # General text or warning message. This is accessed by some
         # sub-widgets so the instance must be created early
         self.messagebox = QMessageBox(self)
-        # Matplotlib widget
-        self.mplw = mplw = MplWidget(self, model)
-        # Tab display on the right column
-        self.tabs = QTabWidget(self)
+        ########## Tab display on the left and right column
+        self.tabs_left = QTabWidget(self)
+        self.tabs_right = QTabWidget(self)
+        ########## Digitizer Toolbar
+        self.toolbar = DigitizerToolBar(self)
+        mainw.addToolBar(self.toolbar)
+        ########## Custom Dialogs
+        self.dlg_export_csv = QFileDialog(
+                self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
+        self.dlg_export_xlsx = QFileDialog(
+                self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
+
+        # Matplotlib widgets, one for each plot
+        self.mplws = []
+        self.plot_names = [plot.name for plot in self.model.plots]
+        for plot in self.model.plots:
+            self.add_plot(plot)
+        plot = self.model.plots[0]
+        mplw = self.mplws[0]
         # Push buttons and axis value input fields widget.
-        self.tab_coordinate_system = CoordinateSystemTab(self, model, mplw)
+        self.tab_coordinate_system = CoordinateSystemTab(self, plot, mplw)
         # Trace Data Model tab
-        self.tab_trace_data_model = TraceDataModelTab(self, model, mplw)
+        self.tab_trace_data_model = TraceDataModelTab(self, plot, mplw)
         # Export options box
-        self.tab_export_settings = ExportSettingsTab(self, model, mplw)
+        self.tab_export_settings = ExportSettingsTab(self, plot, mplw)
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
+
+        for mplw, name in zip(self.mplws, self.plot_names):
+            self.tabs_left.addTab(mplw, name)
+        self.tabs_right.addTab(self.tab_coordinate_system, "Coordinate System")
+        self.tabs_right.addTab(self.tab_trace_data_model, "Traces Data Model")
+        self.tabs_right.addTab(self.tab_export_settings, "Export Settings")
+        self.tabs_right.addTab(self.btn_console, "IPython Console")
         # Setup layout
         self._set_layout()
 
+        ########## Connect own signals
+        self.tabs_left.currentChanged.connect(self.switch_plot_index)
+        # ToolBar signals
+        self.toolbar.act_export_csv.triggered.connect(self.dlg_export_csv.open)
+        self.toolbar.act_export_xlsx.triggered.connect(self.dlg_export_xlsx.open)
+        self.toolbar.act_put_clipboard.triggered.connect(self.put_clipboard)
+        # Dialog box signals
+        self.dlg_export_csv.fileSelected.connect(self.export_csv)
+        self.dlg_export_xlsx.fileSelected.connect(
+                lambda _: self.show_text("Not yet implemented!"))
         ########## Connect foreign signals
-        model.value_error.connect(self.show_text)
+        plot.value_error.connect(self.show_text)
 
 
     # This is connected to from the main window toolbar!
@@ -107,15 +142,6 @@ class Digitizer(QWidget):
                 f.write(pts_i_csv)
         except IOError as e:
             self.show_error(e)
-
-    @logExceptionSlot()
-    def load_clipboard_image(self, state):
-        image = self.clipboard.image()
-        if image.isNull():
-            self.show_text("There is no image data in the system clipboard!")
-            return
-        image.save(self.temp_filename, format="png")
-        self.mplw.load_image(self.temp_filename)
 
     @logExceptionSlot(bool)
     def put_clipboard(self, state=True, pts_data=None):
@@ -160,24 +186,47 @@ class Digitizer(QWidget):
         self.messagebox.setWindowTitle("Plot Workbench Notification")
         self.messagebox.exec_()
 
+    @pyqtSlot(str)
+    def set_wdir(self, abs_path):
+        # Set working directory to last opened file directory
+        self.wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
+
+    @pyqtSlot(int)
+    def switch_plot_index(self, new_index):
+        # Disable current mplw toolbar
+        self.mplws[self.current_plot_index].mpl_toolbar.setVisible(False)
+        # Set new index, set shortcut properties and activate everything
+        self.mplws[new_index].mpl_toolbar.setVisible(True)
+        self.current_plot_index = new_index
+
+    @pyqtSlot(int)
+    def remove_plot(self, index):
+        logger.debug(
+                f"Removing plot: {index} FIXME: Not yet complete? Must check.")
+        mplw = self.mplws[index]
+        self.mainw.removeToolBar(mplw.mpl_toolbar)
+        self.tabs_left.removeTab(index)
+        self.model.remove_plot(index)
+        mplw.deleteLater()
+        del self.mplws[index]
+
+    @pyqtSlot(PlotModel)
+    def add_plot(self, plot):
+        logger.debug(f"Adding plot: {plot.name}")
+        mplw = MplWidget(self, plot)
+        self.mainw.addToolBar(mplw.mpl_toolbar)
+        self.tabs_left.addTab(mplw, plot.name)
+        self.mplws.append(mplw)
+        self.switch_plot_index(len(self.mplws) - 1)
+        
     # Layout is two columns of widgets, arranged by movable splitter widgets
     def _set_layout(self):
-        # Resizing policy arranges the widgets with sane preset positions
-        self._set_v_stretch(self.mplw, 1)
-        self._set_v_stretch(self.tab_coordinate_system, 0)
         self._set_v_stretch(self.tab_trace_data_model, 1)
-        self._set_v_stretch(self.tab_export_settings, 0)
-        self._set_v_stretch(self.btn_console, 0)
-        
-        self.tabs.addTab(self.tab_coordinate_system, "Coordinate System")
-        self.tabs.addTab(self.tab_trace_data_model, "Traces Data Model")
-        self.tabs.addTab(self.tab_export_settings, "Export Settings")
-        self.tabs.addTab(self.btn_console, "IPython Console")
         # Horizontal splitter layout is left and right side combined
         hsplitter = QSplitter(Qt.Horizontal, self)
         hsplitter.setChildrenCollapsible(False)
-        hsplitter.addWidget(self.mplw)
-        hsplitter.addWidget(self.tabs)
+        hsplitter.addWidget(self.tabs_left)
+        hsplitter.addWidget(self.tabs_right)
         # All combined
         digitizer_layout = QHBoxLayout(self)
         digitizer_layout.addWidget(hsplitter)

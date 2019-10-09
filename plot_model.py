@@ -7,7 +7,6 @@ License: GPL version 3
 import logging
 logger = logging.getLogger(__name__)
 
-import inspect
 from functools import partial
 from typing import Iterable
 
@@ -22,16 +21,14 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 import matplotlib.pyplot as plt
 import upylib.u_plot_format as u_format
 
-import physical_models
-
 from upylib.pyqt_debug import logExceptionSlot
 
-class DataModel(QObject):
-    """DataModel
+class PlotModel(QObject):
+    """PlotModel
     
-    UI/data interactive model for digitizing a graph plot using
-    linear or logarithmic scale cartesic or skew (e.g. from perspective)
-    affine-linear coordinate system on an (orthogonal) pixel image space.
+    UI/data interactive model for digitizing one or more graphic data
+    traces on a linear or logarithmic scale rectangular-cartesic or
+    skew affine-linear coordinate system drawn on a pixel image space.
 
     Data coordinate X and Y axes can be /offset/, /skew/ and /rotated/
     arbitrarily and each is defined by setting coinciding start and end
@@ -76,9 +73,7 @@ class DataModel(QObject):
     def __init__(self, parent, conf):
         super().__init__(parent)
         ########## Plot model composition
-        ##### Physical meaning of data, sub-model with export functions etc.
-
-
+        self.name = "Plot Model"
         ##### Two axes
         self.x_ax = Axis(self, conf.x_ax_conf, "X Axis")
         self.y_ax = Axis(self, conf.y_ax_conf, "Y Axis")
