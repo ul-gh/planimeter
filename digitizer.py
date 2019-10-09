@@ -204,6 +204,7 @@ class Digitizer(QWidget):
         logger.debug(
                 f"Removing plot: {index} FIXME: Not yet complete? Must check.")
         mplw = self.mplws[index]
+        mplw.canvas_rescaled.disconnect()
         self.mainw.removeToolBar(mplw.mpl_toolbar)
         self.tabs_left.removeTab(index)
         self.model.remove_plot(index)
@@ -214,6 +215,7 @@ class Digitizer(QWidget):
     def add_plot(self, plot):
         logger.debug(f"Adding plot: {plot.name}")
         mplw = MplWidget(self, plot)
+        mplw.canvas_rescaled.connect(self.mainw.autoscale_window)
         self.mainw.addToolBar(mplw.mpl_toolbar)
         self.tabs_left.addTab(mplw, plot.name)
         self.mplws.append(mplw)
@@ -221,9 +223,9 @@ class Digitizer(QWidget):
         
     # Layout is two columns of widgets, arranged by movable splitter widgets
     def _set_layout(self):
-        self._set_v_stretch(self.tab_trace_data_model, 1)
+        #self._set_v_stretch(self.tab_trace_data_model, 1)
         # Horizontal splitter layout is left and right side combined
-        hsplitter = QSplitter(Qt.Horizontal, self)
+        self.hsplitter = hsplitter = QSplitter(Qt.Horizontal, self)
         hsplitter.setChildrenCollapsible(False)
         hsplitter.addWidget(self.tabs_left)
         hsplitter.addWidget(self.tabs_right)

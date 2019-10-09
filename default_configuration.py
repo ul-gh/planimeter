@@ -9,8 +9,8 @@ class APPLICATION():
     wdir = ""
     # Last opened image
     last_image_file = ""
-    # Default window size
-    window_size = (800, 600)
+    # Maximum window size for automatic resizing
+    autoscale_max_window_size = (1280, 960)
     # Minimum plot widget height
     min_plotwin_height = 100
 

@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
         self.conf = conf = RuntimeConfig()
         conf.load_from_configfile()
 
-        self.setMinimumSize(QSize(*conf.app_conf.window_size))
+        #self.setMinimumSize(QSize(*conf.app_conf.window_size))
         self.setWindowTitle("Plot Workbench -- Main Window -- "
                             "Digitize, Interpolate, Optimize, Approximate")
 
@@ -78,7 +78,7 @@ class MainWindow(QMainWindow):
         ########## Embedded IPython Kernel and Jupyter Console Launcher
         self.ipyconsole = EmbeddedIPythonKernel(self)
 
-        # Embedded Jupyter Console Button signal
+        ########## Connect foreign widget signals
         self.cw.btn_console.clicked.connect(
                 self.ipyconsole.launch_jupyter_console_process)
 
@@ -86,6 +86,26 @@ class MainWindow(QMainWindow):
         # Reopen last file if requested and if it exists
         if self.last_image_file != "":
             self.cw.mplws[0].load_image_file(self.last_image_file)
+        self.autoscale_window()
+
+    @pyqtSlot()
+    @pyqtSlot(int)
+    def autoscale_window(self, *_):
+        sh = self.sizeHint()
+        width, height = sh.width(), sh.height()
+        width_max, height_max = self.conf.app_conf.autoscale_max_window_size
+        if width > width_max or height > height_max:
+            aspect = width / height
+            limit_aspect = width_max / height_max
+            if aspect > limit_aspect:
+                width = width_max
+                height = int(width_max / aspect)
+            else:
+                width = int(height_max * aspect)
+                height = height_max
+        curr_width, curr_height = self.width(), self.height()
+        if width > curr_width or height > curr_height:
+            self.resize(width, height)
 
 
     def closeEvent(self, event):

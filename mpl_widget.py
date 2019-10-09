@@ -118,7 +118,7 @@ class MplWidget(QWidget):
         self.mpl_ax.xaxis.set_visible(False)
         self.mpl_ax.yaxis.set_visible(False)
         # Set matplotlib layout to fill space, with some margin for borders
-        self.fig.subplots_adjust(0.001, 0.001, 0.999, 0.999)
+        self.fig.subplots_adjust(0.001, 0.002, 0.999, 0.999)
 
         ########## Initialise view from model
         self.update_model_view_axes()
@@ -373,6 +373,15 @@ class MplWidget(QWidget):
             self._op_mode = self.MODE_DEFAULT
             self._enter_mode_default()
         self.mode_sw.emit(self._op_mode)
+
+    def sizeHint(self):
+        if hasattr(self, "_mpl_axes_image"):
+            img_height, img_width = self._mpl_axes_image.get_size()
+        else:
+            img_height, img_width = 100, 100
+        coords_height = self.cursor_x_display.sizeHint().height()
+        return QSize(img_width+3, coords_height+img_height+2)
+        
 
 
     ##### Handlers Performing the Operation Mode Transitions
@@ -643,7 +652,7 @@ class MplWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 2, 1)
         layout.setSpacing(2)
-        self.coords_hbox = coords_hbox = QHBoxLayout()
+        coords_hbox = coords_hbox = QHBoxLayout()
         coords_hbox.addStretch(1)
         coords_hbox.addWidget(self.cursor_xy_label)
         coords_hbox.addWidget(self.cursor_x_display)
