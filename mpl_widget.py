@@ -25,7 +25,7 @@ import matplotlib.image
 from matplotlib.backends.backend_qt5agg import FigureCanvas, NavigationToolbar2QT
 
 from plot_model import Trace, Axis
-from digitizer_widgets import SciLineEdit
+from digitizer_widgets import SciLineEdit, SmallSciLineEdit
 from upylib.pyqt_debug import logExceptionSlot
 
 
@@ -631,14 +631,12 @@ class MplWidget(QWidget):
 
     def _setup_coordinates_display(self):
         self.cursor_xy_label = QLabel("Cursor X and Y data coordinates:")
-        self.cursor_x_display = SciLineEdit()
-        self.cursor_y_display = SciLineEdit()
-        self.cursor_x_display.setReadOnly(True)
-        self.cursor_y_display.setReadOnly(True)
-        self.cursor_x_display.setStyleSheet(
-                "padding-top: -2px; padding-bottom: -1px; background-color: LightGrey")
-        self.cursor_y_display.setStyleSheet(
-                "padding-top: -2px; padding-bottom: -1px; background-color: LightGrey")
+        self.cursor_x_display = SmallSciLineEdit(readOnly=True)
+        self.cursor_y_display = SmallSciLineEdit(readOnly=True)
+        #height = self.cursor_x_display.fontMetrics().height()
+        #self.setStyleSheet(
+        #        "QLineEdit { border: 1px solid black; padding-bottom: 2px; "
+        #        f"max-height: {height}px; background-color: LightGrey; }}")
         self.mouse_coordinates_updated.connect(self._update_xy_display)
 
     @logExceptionSlot(float, float)

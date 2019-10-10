@@ -23,8 +23,8 @@ from PyQt5.QtWidgets import (
 
 from mpl_widget import MplWidget
 from digitizer_widgets import (
-        CoordinateSystemTab, TraceDataModelTab, ExportSettingsTab,
-        DigitizerToolBar,
+        PhysicalModelTab, CoordinateSystemTab, TracesDataTab,
+        ExportSettingsTab, DigitizerToolBar,
         )
 from plot_model import PlotModel
 import physical_models
@@ -50,20 +50,7 @@ class Digitizer(QWidget):
         self.mainw = mainw
         self.conf = conf
         self.set_wdir(conf.app_conf.wdir)
-        
-        # Current plot index, used for mplw tabs and model indexing
-        self.current_plot_index = 0
-        # List of physical model specialised class objects,
-        # all imported from physical_models.py
-        self.phys_models = [
-                member[1] for member
-                in inspect.getmembers(physical_models, inspect.isclass)
-                if member[1].__module__ == physical_models.__name__
-                ]
-        self.phys_model_names = [model.name for model in self.phys_models]
 
-        # self.model = physical_models.Custom(self, conf)
-        self.model = physical_models.MosfetDynamic(self, conf)
         # System clipboard access
         self.clipboard = QApplication.instance().clipboard()
         # General text or warning message. This is accessed by some
@@ -81,15 +68,21 @@ class Digitizer(QWidget):
         self.dlg_export_xlsx = QFileDialog(
                 self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
 
-        # Matplotlib widgets, one for each plot
-        self.mplws = []
-        self.plot_names = [plot.name for plot in self.model.plots]
-        for plot in self.model.plots:
-            self.add_plot(plot)
-        plot = self.model.plots[0]
-        mplw = self.mplws[0]
+        # List of physical model specialised class objects,
+        # all imported from physical_models.py
+        self.phys_models = [
+                member[1] for member
+                in inspect.getmembers(physical_models, inspect.isclass)
+                if member[1].__module__ == physical_models.__name__
+                ]
+        self.phys_model_names = [model.name for model in self.phys_models]
+
+        # self.model = physical_models.Custom(self, conf)
+        model = physical_models.MosfetDynamic(self, conf)
+        self.set_model(model)
+
         # Push buttons and axis value input fields widget.
-        self.tab_coordinate_system = CoordinateSystemTab(self, plot, mplw)
+        self.tab_coordinate_system = CoordinateSystemTab(self)
         # Trace Data Model tab
         self.tab_trace_data_model = TraceDataModelTab(self, plot, mplw)
         # Export options box
@@ -98,8 +91,6 @@ class Digitizer(QWidget):
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
 
-        for mplw, name in zip(self.mplws, self.plot_names):
-            self.tabs_left.addTab(mplw, name)
         self.tabs_right.addTab(self.tab_coordinate_system, "Coordinate System")
         self.tabs_right.addTab(self.tab_trace_data_model, "Traces Data Model")
         self.tabs_right.addTab(self.tab_export_settings, "Export Settings")
@@ -118,15 +109,68 @@ class Digitizer(QWidget):
         self.dlg_export_xlsx.fileSelected.connect(
                 lambda _: self.show_text("Not yet implemented!"))
         ########## Connect foreign signals
-        plot.value_error.connect(self.show_text)
 
+
+    def set_model(self, model):
+        if model is self.model:
+            return
+        if model.hasData() and not self.confirm_delete():
+            return
+        # Remove all plots from current (old) model
+        for index in range(len(self.model.plots)):
+            self.remove_plot(index)
+        # Set new model
+        self.model = model
+        for plot in model.plots:
+            self.add_plot(plot)
+
+    @pyqtSlot(int)
+    def switch_plot_index(self, new_index):
+        if new_index == self.current_plot_index:
+            return
+        # Disable current mplw toolbar
+        self.plot_views[self.current_plot_index].mpl_toolbar.setVisible(False)
+        self.curr_view = self.plot_views[new_index]
+        self.curr_plot = self.plots[new_index]
+        # Set new index, set shortcut properties and activate everything
+        self.plot_views[new_index].mpl_toolbar.setVisible(True)
+        self.tab_coordinate_system.switch_plot_index(new_index)
+        self.current_plot_index = new_index
+
+    @pyqtSlot(int)
+    def remove_plot(self, index):
+        logger.debug(
+                f"Removing plot: {index} FIXME: Not yet complete? Must check.")
+        if index == self.current_plot_index:
+            self.switch_plot_index[0]
+        view = self.plot_views[index]
+        view.canvas_rescaled.disconnect()
+        self.mainw.removeToolBar(view.mpl_toolbar)
+        self.tabs_left.removeTab(index)
+        self.model.remove_plot(index)
+        view.deleteLater()
+        del self.plot_views[index]
+        self.plots[index].value_error.disconnect()
+        del self.plots[index]
+
+    @pyqtSlot(PlotModel)
+    def add_plot(self, plot):
+        logger.debug(f"Adding plot: {plot.name}")
+        plot.value_error.connect(self.show_text)
+        self.plots.append(plot)
+        view = MplWidget(self, plot)
+        view.canvas_rescaled.connect(self.mainw.autoscale_window)
+        self.mainw.addToolBar(view.mpl_toolbar)
+        self.tabs_left.addTab(view, plot.name)
+        self.plot_views.append(view)
+        self.switch_plot_index(len(self.plot_views) - 1)
 
     # This is connected to from the main window toolbar!
     @logExceptionSlot(str)
     def export_csv(self, filename):
         """Export CSV textstring to file
         """
-        trace = self.model.traces[self.mplw.curr_trace_no]
+        trace = self.model.traces[self.curr_view.curr_trace_no]
         pts_i = trace.pts_i
         if self.conf.app_conf.decimal_chr.lower() == "system":
             decimal_chr = self.locale().decimalPoint()
@@ -145,7 +189,7 @@ class Digitizer(QWidget):
 
     @logExceptionSlot(bool)
     def put_clipboard(self, state=True, pts_data=None):
-        trace = self.model.traces[self.mplw.curr_trace_no]
+        trace = self.curr_plot.traces[self.curr_view.curr_trace_no]
         if pts_data is None:
             pts_data = trace.pts
         if self.conf.app_conf.decimal_chr.lower() == "system":
@@ -191,36 +235,7 @@ class Digitizer(QWidget):
         # Set working directory to last opened file directory
         self.wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
 
-    @pyqtSlot(int)
-    def switch_plot_index(self, new_index):
-        # Disable current mplw toolbar
-        self.mplws[self.current_plot_index].mpl_toolbar.setVisible(False)
-        # Set new index, set shortcut properties and activate everything
-        self.mplws[new_index].mpl_toolbar.setVisible(True)
-        self.current_plot_index = new_index
 
-    @pyqtSlot(int)
-    def remove_plot(self, index):
-        logger.debug(
-                f"Removing plot: {index} FIXME: Not yet complete? Must check.")
-        mplw = self.mplws[index]
-        mplw.canvas_rescaled.disconnect()
-        self.mainw.removeToolBar(mplw.mpl_toolbar)
-        self.tabs_left.removeTab(index)
-        self.model.remove_plot(index)
-        mplw.deleteLater()
-        del self.mplws[index]
-
-    @pyqtSlot(PlotModel)
-    def add_plot(self, plot):
-        logger.debug(f"Adding plot: {plot.name}")
-        mplw = MplWidget(self, plot)
-        mplw.canvas_rescaled.connect(self.mainw.autoscale_window)
-        self.mainw.addToolBar(mplw.mpl_toolbar)
-        self.tabs_left.addTab(mplw, plot.name)
-        self.mplws.append(mplw)
-        self.switch_plot_index(len(self.mplws) - 1)
-        
     # Layout is two columns of widgets, arranged by movable splitter widgets
     def _set_layout(self):
         #self._set_v_stretch(self.tab_trace_data_model, 1)

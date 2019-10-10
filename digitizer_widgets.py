@@ -12,7 +12,7 @@ from functools import partial
 import numpy as np
 from numpy import NaN, isnan
 
-from PyQt5.QtCore import Qt, QLocale, pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, QSize, QLocale, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator, QIntValidator, QIcon
 from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit,
@@ -24,15 +24,10 @@ from PyQt5.QtWidgets import (
 from upylib.pyqt_debug import logExceptionSlot
 
 
-class TraceDataModelTab(QWidget):
-    def __init__(self, digitizer, model, mplw):
+class PhysicalModelTab(QWidget):
+    def __init__(self, digitizer, phys_models):
         super().__init__(digitizer)
         self.digitizer = digitizer
-        self.model = model
-        self.mplw = mplw
-
-        self.table_tr_conf = TraceConfTable(digitizer, model, mplw)
-
 
         ########## Widgets setup
         ##### Physical model preset selector
@@ -97,15 +92,14 @@ class TraceDataModelTab(QWidget):
         layout.addWidget(self.lbl_export_format, 2, 0)
         layout.addWidget(self.combo_export_format, 2, 1)
         layout.addWidget(self.btn_do_export, 2, 2)
-        # Row 3: Trace conf table
-        layout.addWidget(self.table_tr_conf, 3, 0, 1, 3)
+        # Row 3: Empty space
 
 
 class CoordinateSystemTab(QWidget):
-    def __init__(self, digitizer, model, mplw):
+    def __init__(self, digitizer, plot, ):
         super().__init__(digitizer)
-        self.axconfw = AxConfWidget(digitizer, model, mplw)
-        self.canvas_extents_box = CanvasExtentsBox(digitizer, model, mplw)
+        self.axconfw = AxConfWidget(digitizer, plot, plot_view)
+        self.canvas_extents_box = CanvasExtentsBox(digitizer, plot, plot_view)
         layout = QVBoxLayout(self)
         layout.addWidget(self.axconfw)
         layout.addWidget(self.canvas_extents_box)
@@ -113,38 +107,38 @@ class CoordinateSystemTab(QWidget):
 
 
 class AxConfWidget(QWidget):
-    def __init__(self, digitizer, model, mplw):
-        super().__init__(digitizer)
+    def __init__(self, digitizer, plot_model, controlled_widget):
+        super().__init__(digitizer, plot_model, controlled_widget)
         ######### Access to the data model
-        self.model = model
+        self.plot_model = plot_model
         # Matplotlib widget state
-        self.mplw = mplw
+        self.controlled_widget = controlled_widget
 
         ######### Qt widget setup
         #### Group box for X Coordinate picker and input boxes
         self.group_x = QGroupBox("Enter X Axis Start and End Values")
         self.btn_pick_x = StyledButton("Pick Points", self)
         self.xstart_edit = SciLineEdit(
-                model.x_ax.sect_data[0],
+                plot_model.x_ax.sect_data[0],
                 "X Axis Start Value",
-                model.num_fmt)
+                plot_model.num_fmt)
         self.xend_edit = SciLineEdit(
-                model.x_ax.sect_data[1],
+                plot_model.x_ax.sect_data[1],
                 "X Axis End Value",
-                model.num_fmt)
+                plot_model.num_fmt)
         self.btn_lin_x = QRadioButton("Lin")
         self.btn_log_x = QRadioButton("Log")
         #### Group box for Y Coordinate picker and input boxes
         self.group_y = QGroupBox("Enter Y Axis Start and End Values")
         self.btn_pick_y = StyledButton("Pick Points", self)
         self.ystart_edit = SciLineEdit(
-                model.y_ax.sect_data[0],
+                plot_model.y_ax.sect_data[0],
                 "Y Axis Start Value",
-                model.num_fmt)
+                plot_model.num_fmt)
         self.yend_edit = SciLineEdit(
-                model.y_ax.sect_data[1],
+                plot_model.y_ax.sect_data[1],
                 "Y Axis End Value",
-                model.num_fmt)
+                plot_model.num_fmt)
         self.btn_lin_y = QRadioButton("Lin")
         self.btn_log_y = QRadioButton("Log")
         ##### Common settings
@@ -156,43 +150,43 @@ class AxConfWidget(QWidget):
         self._set_layout()
 
         ########## Initialise view from model
-        self.update_model_view()
-        self.update_mplw_view(mplw.MODE_DEFAULT)
+        self.update_plot_model_view()
+        self.update_controlled_widget_view(controlled_widget.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
-        self.btn_pick_x.toggled.connect(mplw.set_mode_setup_x_axis)
-        self.btn_pick_y.toggled.connect(mplw.set_mode_setup_y_axis)
-        self.btn_log_x.toggled.connect(model.x_ax.set_log_scale)
-        self.btn_log_y.toggled.connect(model.y_ax.set_log_scale)
-        self.btn_drag_axes.toggled.connect(mplw.set_drag_axes)
-        self.btn_store_config.toggled.connect(model.set_wants_persistent_storage)
+        self.btn_pick_x.toggled.connect(controlled_widget.set_mode_setup_x_axis)
+        self.btn_pick_y.toggled.connect(controlled_widget.set_mode_setup_y_axis)
+        self.btn_log_x.toggled.connect(plot_model.x_ax.set_log_scale)
+        self.btn_log_y.toggled.connect(plot_model.y_ax.set_log_scale)
+        self.btn_drag_axes.toggled.connect(controlled_widget.set_drag_axes)
+        self.btn_store_config.toggled.connect(plot_model.set_wants_persistent_storage)
         # Number input boxes emit float signals.
-        self.xstart_edit.valid_number_entered.connect(model.x_ax.set_ax_start)
-        self.ystart_edit.valid_number_entered.connect(model.y_ax.set_ax_start)
-        self.xend_edit.valid_number_entered.connect(model.x_ax.set_ax_end)
-        self.yend_edit.valid_number_entered.connect(model.y_ax.set_ax_end)
+        self.xstart_edit.valid_number_entered.connect(plot_model.x_ax.set_ax_start)
+        self.ystart_edit.valid_number_entered.connect(plot_model.y_ax.set_ax_start)
+        self.xend_edit.valid_number_entered.connect(plot_model.x_ax.set_ax_end)
+        self.yend_edit.valid_number_entered.connect(plot_model.y_ax.set_ax_end)
 
         ########## Connect foreign signals
         # Update when axes config changes
-        model.ax_input_data_changed.connect(self.update_model_view)
+        plot_model.ax_input_data_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
-        mplw.mode_sw.connect(self.update_mplw_view)
+        controlled_widget.mode_sw.connect(self.update_controlled_widget_view)
 
     ########## Slots
     # Updates state of the Matplotlib widget display by setting down the
     # the buttons when each mode is active
     @logExceptionSlot(int)
-    def update_mplw_view(self, op_mode):
-        self.btn_pick_x.setChecked(op_mode == self.mplw.MODE_SETUP_X_AXIS)
-        self.btn_pick_y.setChecked(op_mode == self.mplw.MODE_SETUP_Y_AXIS)
-        self.btn_drag_axes.setChecked(self.mplw._drag_axes)
+    def update_controlled_widget_view(self, op_mode):
+        self.btn_pick_x.setChecked(op_mode == self.controlled_widget.MODE_SETUP_X_AXIS)
+        self.btn_pick_y.setChecked(op_mode == self.controlled_widget.MODE_SETUP_Y_AXIS)
+        self.btn_drag_axes.setChecked(self.controlled_widget._drag_axes)
 
     # Updates buttons and input boxes to represent the data model state
     # and also the new and current matplotlib widget operation mode.
     @logExceptionSlot()
-    def update_model_view(self):
-        x_ax = self.model.x_ax
-        y_ax = self.model.y_ax
+    def update_plot_view(self):
+        x_ax = self.plot_model.x_ax
+        y_ax = self.plot_model.y_ax
         self.set_green_x_ax(x_ax.is_complete)
         self.set_green_y_ax(y_ax.is_complete)
         # Update axis section value input boxes
@@ -209,7 +203,7 @@ class AxConfWidget(QWidget):
         self.btn_pick_x.set_green(x_ax.pts_px_valid)
         self.btn_pick_y.set_green(y_ax.pts_px_valid)
         # Store config button
-        self.btn_store_config.setChecked(self.model.wants_persistent_storage)
+        self.btn_store_config.setChecked(self.plot_model.wants_persistent_storage)
 
     def set_green_x_ax(self, state):
         # Background set to green when model has valid data
@@ -251,10 +245,10 @@ class AxConfWidget(QWidget):
 
 
 class CanvasExtentsBox(QGroupBox):
-    def __init__(self, digitizer, model, mplw):
+    def __init__(self, digitizer, plot_model, mplw):
         super().__init__("Data Coordinate System", digitizer)
         self.digitizer = digitizer
-        self.model = model
+        self.plot_model = plot_model
         self.mplw = mplw
 
         ########## Widgets setup
@@ -267,8 +261,8 @@ class CanvasExtentsBox(QGroupBox):
         # Layout setup
         self._set_layout()
         
-        ########## Initialise view from model
-        self.update_model_view()
+        ########## Initialise view from plot_model
+        self.update_plot_model_view()
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
@@ -278,12 +272,12 @@ class CanvasExtentsBox(QGroupBox):
         self.y_max_edit.valid_number_entered.connect(self._set_canvas_extents)
 
         ########## Connect foreign signals
-        #model.coordinate_system_changed.connect(self.update_model_view)
+        #model.coordinate_system_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.canvas_rescaled.connect(self.update_mplw_view)
 
     @logExceptionSlot()
-    def update_model_view(self):
+    def update_plot_model_view(self):
         pass
 
     @logExceptionSlot(int)
@@ -291,7 +285,7 @@ class CanvasExtentsBox(QGroupBox):
         xb = self.mplw.mpl_ax.get_xbound()
         yb = self.mplw.mpl_ax.get_ybound()
         bounds_px = np.concatenate((xb, yb)).reshape(-1, 2, order="F")
-        bounds_data = self.model.px_to_data(bounds_px)
+        bounds_data = self.plot_model.px_to_data(bounds_px)
         if bounds_data.shape[0] == 0:
             return
         (x_min, y_min), (x_max, y_max) = bounds_data
@@ -306,9 +300,9 @@ class CanvasExtentsBox(QGroupBox):
         xy_max = self.x_max_edit.value(), self.y_max_edit.value()
         xy_min_max = np.concatenate((xy_min, xy_max)).reshape(-1, 2)
         # Displays error message box for invalid data
-        if not self.model.validate_data_pts(xy_min_max):
+        if not self.plot_model.validate_data_pts(xy_min_max):
             return
-        bounds_px = self.model.data_to_px(xy_min_max)
+        bounds_px = self.plot_model.data_to_px(xy_min_max)
         self.mplw.set_canvas_extents(bounds_px)
 
     def _set_layout(self):
@@ -322,15 +316,47 @@ class CanvasExtentsBox(QGroupBox):
         layout.addWidget(self.y_max_edit, 1, 2)
 
 
+class TraceDataTab(QWidget):
+    def __init__(self, digitizer):
+        super().__init__(digitizer)
+        self.digitizer = digitizer
+
+        ########## Widgets setup
+        self.table_tr_conf = TraceConfTable(digitizer)
+        self._set_layout()
+
+        ########## Initialise view from plot_model
+        self.update_plot_model_view()
+
+        ########## Connect own and sub-widget signals
+        self.btn_custom_plot.clicked.connect(self.wip_do_plot)
+
+        ########## Connect foreign signals
+
+    @logExceptionSlot()
+    def update_plot_model_view(self):
+        pass
+
+    @logExceptionSlot(bool)
+    def wip_do_plot(self, state):
+        trace = self.plot_model.traces[self.mplw.curr_trace_no]
+        self.plot_model.wip_export(trace)
+        self.plot_model.wip_plot_cap_charge_e_stored(trace)
+
+    def _set_layout(self):
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.table_tr_conf)
+
+
 class TraceConfTable(QTableWidget):
-    def __init__(self, digitizer, model, mplw):
-        self.model = model
+    def __init__(self, digitizer, plot_model, mplw):
+        self.plot_model = plot_model
         self.mplw = mplw
         headers = ["Name", "Pick Points", "Enable", "Export",
                    "X Start", "X End"]
         self.col_xstart = headers.index("X Start")
         self.col_xend = headers.index("X End")
-        n_traces = len(model.traces)
+        n_traces = len(plot_model.traces)
         n_headers = len(headers)
         self.btns_pick_trace = []
         self.cbs_export = []
@@ -343,7 +369,7 @@ class TraceConfTable(QTableWidget):
 
         ###
         i_types = {"linear": "Linear", "cubic": "C-Splines"}
-        for row, tr in enumerate(self.model.traces):
+        for row, tr in enumerate(self.plot_model.traces):
             name = QTableWidgetItem(tr.name)
             btn_pick_trace = NumberedButton(row, "Pick!", self)
             self.btns_pick_trace.append(btn_pick_trace)
@@ -367,8 +393,8 @@ class TraceConfTable(QTableWidget):
             cb_export.i_toggled.connect(self.set_export)
             cb_enable.i_toggled.connect(self.mplw.enable_trace)
 
-        ########## Initialise view from model
-        self.update_model_view()
+        ########## Initialise view from plot_model
+        self.update_plot_model_view()
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
@@ -378,18 +404,18 @@ class TraceConfTable(QTableWidget):
 
         ########## Connect foreign signals
         # Update when trace config changes, e.g. if traces are added or renamed
-        model.tr_conf_changed.connect(self.update_model_view)
+        plot_model.tr_conf_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.mode_sw.connect(self.update_mplw_view)
 
     @logExceptionSlot()
-    def update_model_view(self):
-        for i, trace in enumerate(self.model.traces):
+    def update_plot_model_view(self):
+        for i, trace in enumerate(self.plot_model.traces):
             self.cbs_export[i].setChecked(trace.export)
 
     @logExceptionSlot(int)
     def update_mplw_view(self, op_mode):
-        for i, trace in enumerate(self.model.traces):
+        for i, trace in enumerate(self.plot_model.traces):
             self.btns_pick_trace[i].setChecked(
                     i == self.mplw.curr_trace_no
                     and op_mode == self.mplw.MODE_ADD_TRACE_PTS)
@@ -397,7 +423,7 @@ class TraceConfTable(QTableWidget):
 
     @logExceptionSlot(int, bool)
     def set_export(self, trace_no, state=True):
-        trace = self.model.traces[trace_no]
+        trace = self.plot_model.traces[trace_no]
         trace.export = state
 
 #    def _handle_selection(self):
@@ -421,8 +447,8 @@ class TraceConfTable(QTableWidget):
 #                if xe_new < x_end:
 #                    x_end = xe_new
 #            for i in sel_traces:
-#                self.model.traces[i].x_start_export = x_start
-#                self.model.traces[i].x_end_export = x_end
+#                self.plot_model.traces[i].x_start_export = x_start
+#                self.plot_model.traces[i].x_end_export = x_end
 #                self.x_start_export = x_start
 #                self.x_end_export = x_end
 #            #self.show_xrange.emit(True)
@@ -432,10 +458,10 @@ class TraceConfTable(QTableWidget):
 
 
 class ExportSettingsTab(QWidget):
-    def __init__(self, digitizer, model, mplw):
+    def __init__(self, digitizer, plot_model, mplw):
         super().__init__(digitizer)
-        ######### Shortcuts to the data model
-        self.model = model
+        ######### Shortcuts to the data plot_model
+        self.plot_model = plot_model
         self.mplw = mplw
 
         ######### Setup widgets
@@ -466,52 +492,52 @@ class ExportSettingsTab(QWidget):
         self.lbl_grid_parameter = QLabel("Step Size / N/dec / Q",
                                          alignment=Qt.AlignCenter)
         self.edit_grid_parameter = SciLineEdit(
-                0.1, "Step Size", self.model.num_fmt)
+                0.1, "Step Size", self.plot_model.num_fmt)
 
         ##### Lower grid layout: Definition range display and export range edit
         self.lbl_definition_range = QLabel("Definition Range Start/End:")
         self.lbl_export_range = QLabel("Export Range Start/End:")
 
         self.edit_definition_range_start = SciLineEdit(
-                0.0, "Lower Limit", self.model.num_fmt)
+                0.0, "Lower Limit", self.plot_model.num_fmt)
         self.edit_definition_range_start.setReadOnly(True)
         self.edit_definition_range_start.setStyleSheet(
                 "background-color: LightGrey")
         self.edit_x_start_export = SciLineEdit(
-                self.model.x_start_export,
+                self.plot_model.x_start_export,
                 "X Axis Start Value",
-                self.model.num_fmt
+                self.plot_model.num_fmt
                 )
 
         self.edit_definition_range_end = SciLineEdit(
-                10.0, "Upper Limmit", self.model.num_fmt)
+                10.0, "Upper Limmit", self.plot_model.num_fmt)
         self.edit_definition_range_end.setReadOnly(True)
         self.edit_definition_range_end.setStyleSheet(
                 "background-color: LightGrey")
         self.edit_x_end_export = SciLineEdit(
-                self.model.x_end_export,
+                self.plot_model.x_end_export,
                 "X Axis End Value",
-                self.model.num_fmt
+                self.plot_model.num_fmt
                 )
         # Setup layout
         self._set_layout()
         
-        ########## Initialise view from model
-        self.update_model_view()
+        ########## Initialise view from plot_model
+        self.update_plot_model_view()
         self.update_mplw_view(mplw.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
         # self.btn_export.toggled.connect(self.wip_do_export)
 
         ########## Connect foreign signals
-        model.export_settings_changed.connect(self.update_model_view)
+        plot_model.export_settings_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
         mplw.mode_sw.connect(self.update_mplw_view)
 
     @logExceptionSlot()
-    def update_model_view(self):
-        #self.btn_lin_export.setChecked(not self.model.x_log_scale_export)
-        #self.btn_log_export.setChecked(self.model.x_log_scale_export)
+    def update_plot_model_view(self):
+        #self.btn_lin_export.setChecked(not self.plot_model.x_log_scale_export)
+        #self.btn_log_export.setChecked(self.plot_model.x_log_scale_export)
         pass
 
     @logExceptionSlot(int)
@@ -652,11 +678,12 @@ class SciLineEdit(QLineEdit):
     and holds a validated number property.
     """
     valid_number_entered = pyqtSignal(float)
+
     def __init__(
             self,
             preset_value=NaN,
             placeholderText="",
-            num_fmt=".6G",
+            num_fmt="G",
             *args,
             **kwargs
             ):
@@ -674,6 +701,7 @@ class SciLineEdit(QLineEdit):
         self.setValidator(validator)
         self._num_fmt = num_fmt
         self._value = preset_value
+        self.setStyleSheet(":read-only {background-color: lightGrey;}")
     
     def value(self) -> float:
         return self._value
@@ -687,6 +715,18 @@ class SciLineEdit(QLineEdit):
     def _update_value(self):
         self._value = float(self.text().replace(",", "."))
         self.valid_number_entered.emit(self._value)
+
+
+class SmallSciLineEdit(SciLineEdit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def sizeHint(self):
+        fm = self.fontMetrics()
+        return fm.size(0, f"{8.888888888e+300:{self._num_fmt}}")
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
 
 
 class NumberedCenteredCheckbox(QWidget):
