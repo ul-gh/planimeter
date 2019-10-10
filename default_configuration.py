@@ -27,7 +27,7 @@ class APPLICATION():
     img_interpolation = "bilinear"
 
 
-class DATA_MODEL():
+class PLOT_MODEL():
     """Settings for all traces, axes etc
     """
     ########## Export options

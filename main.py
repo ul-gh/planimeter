@@ -24,7 +24,7 @@ from PyQt5.QtCore import QSize, pyqtSlot
 from PyQt5.QtWidgets import QMainWindow, QApplication
 
 from digitizer import Digitizer
-from default_configuration import APPLICATION, DATA_MODEL, TRACE, X_AXIS, Y_AXIS
+from default_configuration import APPLICATION, PLOT_MODEL, TRACE, X_AXIS, Y_AXIS
 
 from embedded_ipython import EmbeddedIPythonKernel
 
@@ -34,7 +34,7 @@ class RuntimeConfig():
     """
     def __init__(self):
         self.app_conf = APPLICATION()
-        self.model_conf = DATA_MODEL()
+        self.plot_conf = PLOT_MODEL()
         self.trace_conf = TRACE()
         self.x_ax_conf = X_AXIS()
         self.y_ax_conf = Y_AXIS()
@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
         # Store axis configuration if requested
         if self.cw.model.wants_persistent_storage:
             logger.info("Storing axis configuration to disk..")
-            self.conf.model_conf.wants_persistent_storage = True
+            self.conf.plot_conf.wants_persistent_storage = True
             # Getting plot configuration from Digitizer widget:
             self.conf.x_ax_state = self.cw.model.x_ax.restorable_state()
             self.conf.y_ax_state = self.cw.model.y_ax.restorable_state()
