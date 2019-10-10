@@ -7,6 +7,7 @@ License: GPL version 3
 import logging
 logger = logging.getLogger(__name__)
 
+import io
 import os
 import tempfile
 import numpy as np
@@ -17,7 +18,7 @@ from PyQt5.QtGui import QIcon, QIntValidator
 from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QToolBar,
         QGroupBox, QLabel, QRadioButton, QCheckBox, QComboBox, QFileDialog,
-        QTableWidget, QTableWidgetItem, QStyle, QAction,
+        QTableWidget, QTableWidgetItem, QStyle, QAction, QTabWidget, QSplitter,
         )
 from custom_standard_widgets import (
         SciLineEdit, SmallSciLineEdit, StyledButton, NumberedButton,
@@ -36,13 +37,15 @@ from upylib.pyqt_debug import logExceptionSlot
 class Digitizer(QWidget):
     def __init__(self, parent, plot_model, conf):
         super().__init__(parent)
-        self.conf = conf
+        self.conf = parent.conf
         self.set_wdir(conf.app_conf.wdir)
-        # Data Model for one plot of one or more traces
+        ##### Data Model for one plot of one or more traces
         self.plot_model = plot_model
         ##### Add widgets
         # Messagebox for confirming points deletion etc.
         self.messagebox = CustomisedMessageBox(self)
+        # Right side shows single-plot configuration tabs
+        self.tabs = QTabWidget()
         # Central Matplotlib Widget
         self.mplw = MplWidget(self, plot_model)
         # System clipboard instance already used by MplWidget
@@ -60,7 +63,7 @@ class Digitizer(QWidget):
                 self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
         self.dlg_export_xlsx = QFileDialog(
                 self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
-        ##### Connect own widget signals
+        ##### Connect own and sub-widget signals
         # Mplwidget dialog box signals
         self.mplw.dlg_open_image_file.directoryEntered.connect(self.set_wdir)
         # Own Dialog box signals
@@ -137,7 +140,7 @@ class Digitizer(QWidget):
           '<meta name="generator" content="Plot Workbench Export"/>'
           '</head><body><table>'
           )
-        
+
         footer = '</table></body></html>'
         s = ""
         for row in array.tolist():
@@ -158,6 +161,17 @@ class Digitizer(QWidget):
         if decimal_chr != ".":
             s = s.replace(".", decimal_chr)
         return s
+
+    # Layout is two columns of widgets, arranged by movable splitter widgets
+    def _set_layout(self):
+        # Horizontal splitter layout is left and right side combined
+        hsplitter = QSplitter(Qt.Horizontal, self)
+        hsplitter.setChildrenCollapsible(False)
+        hsplitter.addWidget(self.mplw)
+        hsplitter.addWidget(self.tabs)
+        # All combined
+        layout = QHBoxLayout(self)
+        layout.addWidget(hsplitter)
 
 
 class MplWidget(QWidget):

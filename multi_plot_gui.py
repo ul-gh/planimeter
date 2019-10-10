@@ -7,33 +7,27 @@ License: GPL version 3
 import logging
 logger = logging.getLogger(__name__)
 
-import io
 import os
-import tempfile
 import inspect
 
 import numpy as np
 
-from PyQt5.QtCore import Qt, QDir, QMimeData, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, QDir, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
-        QWIDGETSIZE_MAX, QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-        QSplitter, QSizePolicy, QPlainTextEdit, QMessageBox,
-        QPushButton, QCheckBox, QTabWidget, QFileDialog
+        QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+        QGridLayout, QSplitter, QSizePolicy, QPlainTextEdit, QMessageBox,
+        QPushButton, QCheckBox, QTabWidget, QFileDialog, QLabel, QComboBox,
         )
 from custom_standard_widgets import CustomisedMessageBox
 
 from digitizer import Digitizer
-from configurator_widgets import (
-        PhysicalModelTab, CoordinateSystemTab, TraceDataTab,
-        ExportSettingsTab, DigitizerToolBar,
-        )
 from plot_model import PlotModel
 import physical_models
 
 from upylib.pyqt_debug import logExceptionSlot
 
 
-class PlotModelingTool(QWidget):
+class MultiPlotWidget(QWidget):
     """PyQt5 widget for GUI interactive digitizing of data models.
     
     Each data model consists of one or more plots and specific
@@ -50,7 +44,7 @@ class PlotModelingTool(QWidget):
         * Various text and button input widgets for setting model properties
         * Clipboard access and file import/export functions
     
-    2019-09-17 Ulrich Lukas
+    2019-10-10 Ulrich Lukas
     """
     def __init__(self, mainw, conf):
         super().__init__(mainw)
@@ -58,14 +52,11 @@ class PlotModelingTool(QWidget):
         self.conf = conf
         self.set_wdir(conf.app_conf.wdir)
 
-        # System clipboard access
-        self.clipboard = QApplication.instance().clipboard()
         # General text or warning message. This is accessed by some
         # sub-widgets so the instance must be created early
         self.messagebox = CustomisedMessageBox(self)
         ########## Tab display on the left and right column
-        self.tabs_left = QTabWidget(self)
-        self.tabs_right = QTabWidget(self)
+        self.tabs = QTabWidget(self)
 
         # List of physical model specialised class objects,
         # all imported from physical_models.py
@@ -78,20 +69,21 @@ class PlotModelingTool(QWidget):
 
         # self.model = physical_models.Custom(self, conf)
         phys_model = physical_models.MosfetDynamic(self, conf)
+        self.plots = []
+        self.digitizers = []
+        self.curr_plot = None
+        self.curr_digitizer = None
         self.set_model(phys_model)
 
         # Select, configure and export physical data models
         self.tab_physical_model = PhysicalModelTab(self, self.phys_models)
-
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
                 "Launch Jupyter Console\nIn Application Namespace", self)
-
-        self.tabs_right.addTab(self.tab_physical_model, "Physical Model")
-        self.tabs_right.addTab(self.tab_coordinate_system, "Coordinate System")
-        self.tabs_right.addTab(self.tab_trace_data, "Traces Data")
-        self.tabs_right.addTab(self.tab_export_settings, "Export Settings")
-        self.tabs_right.addTab(self.btn_console, "IPython Console")
+        # The first tab is supposed to be always present for setting the
+        # multi-plot-model, while the other right-side tabs 
+        self.tabs.addTab(self.tab_physical_model, "Physical Model")
+        self.tabs.addTab(self.btn_console, "IPython Console")
         # Setup layout
         self._set_layout()
 
@@ -103,8 +95,8 @@ class PlotModelingTool(QWidget):
     def set_model(self, phys_model):
         if phys_model is self.phys_model:
             return
-        if phys_model.hasData() and not self.confirm_delete():
-            return
+        #if phys_model.hasData() and not self.confirm_delete():
+        #    return
         # Remove all plots from current (old) model
         for index in range(len(self.phys_model.plots)):
             self.remove_plot(index)
@@ -118,11 +110,11 @@ class PlotModelingTool(QWidget):
         if new_index == self.current_plot_index:
             return
         # Disable current mplw toolbar
-        self.digitizers[self.current_plot_index].mpl_toolbar.setVisible(False)
+        self.digitizers[self.current_plot_index].mplw.toolbar.setVisible(False)
         self.curr_digitizer = self.digitizers[new_index]
         self.curr_plot = self.plots[new_index]
         # Set new index, set shortcut properties and activate everything
-        self.digitizers[new_index].mpl_toolbar.setVisible(True)
+        self.digitizers[new_index].mplw.toolbar.setVisible(True)
         self.tab_coordinate_system.switch_plot_index(new_index)
         self.current_plot_index = new_index
 
@@ -132,52 +124,37 @@ class PlotModelingTool(QWidget):
                 f"Removing plot: {index} FIXME: Not yet complete? Must check.")
         if index == self.current_plot_index:
             self.switch_plot_index[0]
-        view = self.digitizers[index]
-        view.canvas_rescaled.disconnect()
-        self.mainw.removeToolBar(view.mpl_toolbar)
-        self.tabs_left.removeTab(index)
-        self.model.remove_plot(index)
-        view.deleteLater()
+        digitizer = self.digitizers[index]
+        digitizer.mplw.canvas_rescaled.disconnect()
+        self.mainw.removeToolBar(digitizer.mplw.toolbar)
+        self.tabs.removeTab(index)
+        self.plot_model.remove_plot(index)
+        digitizer.deleteLater()
         del self.digitizers[index]
         self.plots[index].value_error.disconnect()
         del self.plots[index]
 
     @pyqtSlot(PlotModel)
-    def add_plot(self, plot):
-        logger.debug(f"Adding plot: {plot.name}")
-        plot.value_error.connect(self.show_text)
-        self.plots.append(plot)
-        view = MplWidget(self, plot)
-        view.canvas_rescaled.connect(self.mainw.autoscale_window)
-        self.mainw.addToolBar(view.mpl_toolbar)
-        self.tabs_left.addTab(view, plot.name)
-        self.digitizers.append(view)
+    def add_plot(self, plot_model):
+        logger.debug(f"Adding plot: {plot_model.name}")
+        plot_model.value_error.connect(self.show_text)
+        self.plots.append(plot_model)
+        digitizer = Digitizer(self, plot_model)
+        digitizer.mplw.canvas_rescaled.connect(self.mainw.autoscale_window)
+        self.mainw.addToolBar(digitizer.mplw.toolbar)
+        self.tabs.addTab(digitizer, plot_model.name)
+        self.digitizers.append(digitizer)
         self.switch_plot_index(len(self.digitizers) - 1)
-
 
     @pyqtSlot(str)
     def set_wdir(self, abs_path):
         # Set working directory to last opened file directory
         self.wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
 
-
-    # Layout is two columns of widgets, arranged by movable splitter widgets
     def _set_layout(self):
-        # Horizontal splitter layout is left and right side combined
-        self.hsplitter = hsplitter = QSplitter(Qt.Horizontal, self)
-        hsplitter.setChildrenCollapsible(False)
-        hsplitter.addWidget(self.tabs_left)
-        hsplitter.addWidget(self.tabs_right)
-        # All combined
-        digitizer_layout = QHBoxLayout(self)
-        digitizer_layout.addWidget(hsplitter)
-
-    @staticmethod
-    def _set_v_stretch(widget, value: int):
-        # Set widget size policy stretch factor to value
-        sp = widget.sizePolicy()
-        sp.setVerticalStretch(value)
-        widget.setSizePolicy(sp)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.tabs)
 
 
 class PhysicalModelTab(QWidget):

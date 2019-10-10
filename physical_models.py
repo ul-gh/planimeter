@@ -10,9 +10,9 @@ class MosfetDynamic():
     # Display name, used by the GUI
     name = "Mosfet Dynamic"
 
-    def __init__(self, digitizer, conf):
+    def __init__(self, parent, conf):
         confs = [conf, conf, conf]
-        self.plots = plots = [PlotModel(digitizer, conf) for conf in confs]
+        self.plots = plots = [PlotModel(parent, conf) for conf in confs]
         plots[0].name = "Capacitances"
         plots[1].name = "Transconductance"
         plots[2].name = "Reverse Diode Conductance"
@@ -23,9 +23,9 @@ class Custom():
     # Display name, used by the GUI
     name = "Custom"
 
-    def __init__(self, digitizer, conf):
+    def __init__(self, parent, conf):
         confs = [conf, conf, conf]
-        self.plots = plots = [PlotModel(digitizer, conf) for conf in confs]
+        self.plots = plots = [PlotModel(parent, conf) for conf in confs]
         plots[0].name = "Plot 1"
         plots[1].name = "Plot 2"
         plots[2].name = "Plot 3"
