@@ -81,7 +81,7 @@ class X_AXIS():
     log_scale = False
     log_base = 10
     # Absolute tolerance, same as for data model
-    atol = DATA_MODEL.atol
+    atol = PLOT_MODEL.atol
 
 class Y_AXIS():
     """Settings for Y-Axis
@@ -91,4 +91,4 @@ class Y_AXIS():
     log_scale = False
     log_base = 10
     # Absolute tolerance, same as for data model
-    atol = DATA_MODEL.atol
+    atol = PLOT_MODEL.atol

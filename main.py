@@ -23,7 +23,7 @@ from numpy import NaN
 from PyQt5.QtCore import QSize, pyqtSlot
 from PyQt5.QtWidgets import QMainWindow, QApplication
 
-from digitizer import Digitizer
+from multi_plot_gui import MultiPlotWidget
 from default_configuration import APPLICATION, PLOT_MODEL, TRACE, X_AXIS, Y_AXIS
 
 from embedded_ipython import EmbeddedIPythonKernel
@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
                             "Digitize, Interpolate, Optimize, Approximate")
 
         ########## Central Widget
-        self.cw = Digitizer(self, conf)
+        self.cw = MultiPlotWidget(self, conf)
         self.setCentralWidget(self.cw)
 
         ########## Embedded IPython Kernel and Jupyter Console Launcher
@@ -149,16 +149,15 @@ if __name__ == "__main__":
     mainw.activateWindow()
 
     # Set up some shortcuts for command line interactive use.
-    mplws = mainw.cw.mplws
-    mplw = mplws[0]
+    digitizer = mainw.cw.digitizers[0]
+    mplw = digitizer.mplw
     ax = mplw.mpl_ax
     fig = mplw.fig
     cv = mplw.canvas_qt
     redraw = mplw.canvas_qt.draw_idle
     print_model_view_items = mplw.print_model_view_items
 
-    model = mainw.cw.model
-    plots = model.plots
+    plots = digitizer.model.plots
     tr1, tr2, tr3 = plots[0].traces[0:3]
 
     # When running from ipython shell, use its Qt GUI event loop

@@ -58,6 +58,11 @@ class MultiPlotWidget(QWidget):
         ########## Tab display on the left and right column
         self.tabs = QTabWidget(self)
 
+        self.plots = []
+        self.digitizers = []
+        self.curr_plot = None
+        self.curr_digitizer = None
+
         # List of physical model specialised class objects,
         # all imported from physical_models.py
         self.phys_models = [
@@ -67,13 +72,9 @@ class MultiPlotWidget(QWidget):
                 ]
         self.phys_model_names = [model.name for model in self.phys_models]
 
-        # self.model = physical_models.Custom(self, conf)
-        phys_model = physical_models.MosfetDynamic(self, conf)
-        self.plots = []
-        self.digitizers = []
-        self.curr_plot = None
-        self.curr_digitizer = None
-        self.set_model(phys_model)
+        self.phys_model = None
+        new_model = physical_models.MosfetDynamic(self, conf)
+        self.set_model(new_model)
 
         # Select, configure and export physical data models
         self.tab_physical_model = PhysicalModelTab(self, self.phys_models)
@@ -88,7 +89,7 @@ class MultiPlotWidget(QWidget):
         self._set_layout()
 
         ########## Connect own signals
-        self.tabs_left.currentChanged.connect(self.switch_plot_index)
+        self.tabs.currentChanged.connect(self.switch_plot_index)
         ########## Connect foreign signals
 
 
@@ -98,8 +99,9 @@ class MultiPlotWidget(QWidget):
         #if phys_model.hasData() and not self.confirm_delete():
         #    return
         # Remove all plots from current (old) model
-        for index in range(len(self.phys_model.plots)):
-            self.remove_plot(index)
+        if self.phys_model is not None:
+            for index in range(len(self.phys_model.plots)):
+                self.remove_plot(index)
         # Set new model
         self.phys_model = phys_model
         for plot in phys_model.plots:
@@ -137,9 +139,9 @@ class MultiPlotWidget(QWidget):
     @pyqtSlot(PlotModel)
     def add_plot(self, plot_model):
         logger.debug(f"Adding plot: {plot_model.name}")
-        plot_model.value_error.connect(self.show_text)
+        plot_model.value_error.connect(self.messagebox.show_warning)
         self.plots.append(plot_model)
-        digitizer = Digitizer(self, plot_model)
+        digitizer = Digitizer(self, plot_model, self.conf)
         digitizer.mplw.canvas_rescaled.connect(self.mainw.autoscale_window)
         self.mainw.addToolBar(digitizer.mplw.toolbar)
         self.tabs.addTab(digitizer, plot_model.name)

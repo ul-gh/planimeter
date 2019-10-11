@@ -69,7 +69,7 @@ class Digitizer(QWidget):
         # Own Dialog box signals
         self.dlg_export_csv.fileSelected.connect(self.export_csv)
         self.dlg_export_xlsx.fileSelected.connect(
-                lambda _: self.messagebox.show_text("Not yet implemented!"))
+                lambda _: self.messagebox.show_warning("Not yet implemented!"))
         # ToolBar signals
         self.toolbar.act_export_csv.triggered.connect(self.dlg_export_csv.open)
         self.toolbar.act_export_xlsx.triggered.connect(self.dlg_export_xlsx.open)
@@ -419,7 +419,7 @@ class MplWidget(QWidget):
             if os.path.isfile(filename):
                 image = matplotlib.image.imread(filename)
             else:
-                self.messagebox.show_text("Cannot open file. Not an image?")
+                self.messagebox.show_warning("Cannot open file. Not an image?")
                 return
         except Exception as e:
             self.messagebox.show_error(e)
@@ -449,7 +449,7 @@ class MplWidget(QWidget):
                 f"Clipboard Paste Image for {self.model.name}.png")
         image = self.clipboard.image()
         if image.isNull():
-            self.messagebox.show_text("No image data found in clipboard!")
+            self.messagebox.show_warning("No image data found in clipboard!")
             return
         image.save(self.temp_filename, format="png")
         self.load_image_file(self.temp_filename)
@@ -553,7 +553,7 @@ class MplWidget(QWidget):
         if not self.model.axes_setup_is_complete:
             text = "You must configure the axes first!"
             logger.info(text)
-            self.messagebox.show_text(text)
+            self.messagebox.show_warning(text)
             self.set_mode(self.MODE_DEFAULT)
             return
         self._blit_buffer_stale = True
@@ -1159,7 +1159,7 @@ class AxConfWidget(QWidget):
     # Updates buttons and input boxes to represent the data model state
     # and also the new and current matplotlib widget operation mode.
     @logExceptionSlot()
-    def update_plot_view(self):
+    def update_plot_model_view(self):
         x_ax = self.plot_model.x_ax
         y_ax = self.plot_model.y_ax
         self.set_green_x_ax(x_ax.is_complete)
@@ -1220,7 +1220,7 @@ class AxConfWidget(QWidget):
 
 
 class CanvasExtentsBox(QGroupBox):
-    def __init__(self, digitizer, plot_model, mplw):
+    def __init__(self, mpl_widget, plot_model):
         super().__init__("Data Coordinate System", digitizer)
         self.digitizer = digitizer
         self.plot_model = plot_model

@@ -80,7 +80,7 @@ class PlotModel(QObject):
         ##### Origin
         self.origin_px = np.full(2, NaN)
         # Matplotlib format code
-        self.origin_fmt = conf.model_conf.origin_fmt
+        self.origin_fmt = conf.plot_conf.origin_fmt
         self.origin_view_obj = None # Optional: matplotlib lines2D instance
         ##### Coordinate transformation matrices
         self.data_to_px_mat = None # Optional: np.ndarray
@@ -92,9 +92,9 @@ class PlotModel(QObject):
             Trace(self, conf.trace_conf, trace_no, name, color)
             for trace_no, name, color
             in zip( # trace_no: enumeration from zero in order of traces_names
-                    range(len(conf.model_conf.traces_names)),
-                    conf.model_conf.traces_names,
-                    conf.model_conf.traces_colors,
+                    range(len(conf.plot_conf.traces_names)),
+                    conf.plot_conf.traces_names,
+                    conf.plot_conf.traces_colors,
                     )
             ]
 
@@ -107,14 +107,14 @@ class PlotModel(QObject):
         self.x_start_export = NaN
         self.x_end_export = NaN
         # Fixed step size for export range is optional
-        self.fixed_n_pts_export = conf.model_conf.fixed_n_pts_export
-        self.x_step_export = conf.model_conf.x_step_export
+        self.fixed_n_pts_export = conf.plot_conf.fixed_n_pts_export
+        self.x_step_export = conf.plot_conf.x_step_export
         # Alternative definition of export range by total number of points
-        self.n_pts_export = conf.model_conf.n_pts_export
+        self.n_pts_export = conf.plot_conf.n_pts_export
         # Number of X-axis points per decade in case of log X grid
-        self.n_pts_dec_export = conf.model_conf.n_pts_dec_export
+        self.n_pts_dec_export = conf.plot_conf.n_pts_dec_export
         # Maximum number of export points for user input verification
-        self.n_pts_export_max = conf.model_conf.n_pts_export_max
+        self.n_pts_export_max = conf.plot_conf.n_pts_export_max
         # Export grid can be logarithmic independent from original axes scale
         self.x_log_scale_export = False
 
@@ -125,9 +125,9 @@ class PlotModel(QObject):
         # Python string format code for display of numbers
         self.num_fmt = conf.app_conf.num_fmt_gui
         # Absolute tolerance for testing if values are close to zero
-        self.atol = conf.model_conf.atol
+        self.atol = conf.plot_conf.atol
         # Store axes configuration persistently on disk when set
-        self.wants_persistent_storage = conf.model_conf.wants_persistent_storage
+        self.wants_persistent_storage = conf.plot_conf.wants_persistent_storage
 
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
