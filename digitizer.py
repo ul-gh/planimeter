@@ -16,7 +16,7 @@ from numpy import NaN, isnan
 from PyQt5.QtCore import Qt, QDir, QSize, QMimeData, QTimer, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QIcon, QIntValidator
 from PyQt5.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QToolBar,
+        QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
         QGroupBox, QLabel, QRadioButton, QCheckBox, QComboBox, QFileDialog,
         QTableWidget, QTableWidgetItem, QStyle, QAction, QTabWidget, QSplitter,
         )
@@ -51,6 +51,7 @@ class Digitizer(QSplitter):
         self.tabs = QTabWidget()
         # Central Matplotlib Widget
         self.mpl_widget = MplWidget(self, plot_model)
+        self.toolbar = self.mpl_widget.toolbar
         logger.debug(f"Added matplotlib widget: {self.mpl_widget}")
         # System clipboard instance already used by MplWidget
         self.clipboard = self.mpl_widget.clipboard
@@ -64,8 +65,6 @@ class Digitizer(QSplitter):
         self.tabs.addTab(self.tab_coordinate_system, "Coordinate System")
         self.tabs.addTab(self.tab_trace_conf, "Traces")
         self.tabs.addTab(self.tab_export_settings, "Export Settings")
-        # Toolbar to be used in Main Window
-        self.toolbar = DigitizerToolBar(self)
         # Custom Dialogs for direct exporting
         self.dlg_export_csv = QFileDialog(
                 self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
@@ -185,9 +184,11 @@ class Digitizer(QSplitter):
         #layout = QHBoxLayout(self)
         #layout.setContentsMargins(0, 0, 0, 0)
         #layout.addWidget(hsplitter)
-        self.setChildrenCollapsible(False)
         self.addWidget(self.mpl_widget)
         self.addWidget(self.tabs)
+        self.setChildrenCollapsible(False)
+        self.setStretchFactor(0, 1)
+        self.setStretchFactor(1, 0)
 
 
 class MplWidget(QWidget):
@@ -272,7 +273,7 @@ class MplWidget(QWidget):
         # Data coordinate display box displayed above plot canvas
         self._setup_coordinates_display()
         ########## Toolbar to be later added to Main Window
-        self.toolbar = MplToolbar(self.canvas_qt, self)
+        self.toolbar = DigitizerToolBar(self.canvas_qt, self)
         # Add canvas_qt to own layout
         self._set_layout()
         
@@ -566,12 +567,6 @@ class MplWidget(QWidget):
         self._add_and_pick_point(self.model.y_ax, np.full(2, NaN))
 
     def _enter_mode_add_trace_pts(self):
-        if not self.model.axes_setup_is_complete:
-            text = "You must configure the axes first!"
-            logger.info(text)
-            self.messagebox.show_warning(text)
-            self.set_mode(self.MODE_DEFAULT)
-            return
         self._blit_buffer_stale = True
         trace = self.model.traces[self.curr_trace_no]
         # If trace points have already been selected, ask whether to
@@ -583,6 +578,11 @@ class MplWidget(QWidget):
             trace.clear_trace()
         logger.info(f"Add points mode for trace {self.curr_trace_no + 1}!")
         self._add_and_pick_point(trace, (NaN, NaN))
+        if not self.model.axes_setup_is_complete:
+            text = "You must configure the axes first!"
+            logger.info(text)
+            self.messagebox.show_warning(text)
+            self.set_mode(self.MODE_DEFAULT)
 
     def _enter_mode_drag_obj(self):
         self._blit_buffer_stale = True
@@ -810,64 +810,12 @@ class MplWidget(QWidget):
         layout.addWidget(self.canvas_qt)
 
 
-class DigitizerToolBar(QToolBar):
-    def __init__(self, parent):
-        super().__init__()
-        ########## Define new actions
-        icon_export = QIcon.fromTheme(
-                "document-save",
-                self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        icon_send = QIcon.fromTheme(
-                "document-send",
-                self.style().standardIcon(QStyle.SP_ComputerIcon))
-        self.act_put_clipboard = QAction(
-                icon_send,
-                "Put to Clipboard",
-                self)
-        self.act_export_xlsx = QAction(
-                icon_export,
-                "Export data as XLSX",
-                self)
-        self.act_export_csv = QAction(
-                icon_export,
-                "Export data as CSV",
-                self)
-        # Dict of our new actions plus text
-        self._actions = {self.act_export_csv: "Export{}CSV",
-                         self.act_export_xlsx: "Export{}XLSX", 
-                         self.act_put_clipboard: "Put Into{}Clipboard",
-                         }
-        ########## Add new actions to the toolbar
-        self.addActions(self._actions.keys())
-        ########## Connect own signals
-        self.orientationChanged.connect(self._on_orientationChanged)
-        ########## Initial view setup
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self._on_orientationChanged(Qt.Horizontal)
-        #self.setIconSize(self.iconSize() * 0.8)
-        self.setStyleSheet("spacing:2px")
-    
-    @pyqtSlot(Qt.Orientation)
-    def _on_orientationChanged(self, new_orientation):
-        logger.debug("Digitizer Toolbar orientation change handler called")
-        if new_orientation == Qt.Horizontal:
-            self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-            # Set text without line break
-            for act, text in self._actions.items():
-                act.setIconText(text.format(" "))
-        else:
-            self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            # Set text with line break
-            for act, text in self._actions.items():
-                act.setIconText(text.format("\n"))
-
-
-class MplToolbar(NavigationToolbar2QT): 
-    def __init__(self, canvas, parent):
+class MplToolBar(NavigationToolbar2QT): 
+    def __init__(self, mpl_canvas, parent):
         # When coordinates display is enabled, this influences the toolbar
         # sizeHint, causing trouble in case of vertical toolbar orientation.
         # Also, we use an own coordinate display box. Thus setting to False.
-        super().__init__(canvas, parent, coordinates=False)
+        super().__init__(mpl_canvas, parent, coordinates=False)
         ########## Patch original API action buttons with new text etc:
         for act in self.actions():
             text = act.text()
@@ -938,6 +886,38 @@ class MplToolbar(NavigationToolbar2QT):
             # Set text with line break
             for act, text in self._custom_actions.items():
                 act.setIconText(text.format("\n"))
+
+
+class DigitizerToolBar(MplToolBar):
+    def __init__(self, *args):
+        super().__init__(*args)
+        ########## Define new actions
+        icon_export = QIcon.fromTheme(
+                "document-save",
+                self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        icon_send = QIcon.fromTheme(
+                "document-send",
+                self.style().standardIcon(QStyle.SP_ComputerIcon))
+        self.act_put_clipboard = QAction(
+                icon_send,
+                "Put to Clipboard",
+                self)
+        self.act_export_xlsx = QAction(
+                icon_export,
+                "Export data as XLSX",
+                self)
+        self.act_export_csv = QAction(
+                icon_export,
+                "Export data as CSV",
+                self)
+        # Dict of our new actions plus text
+        new_actions = {self.act_export_csv: "Export{}CSV",
+                       self.act_export_xlsx: "Export{}XLSX", 
+                       self.act_put_clipboard: "Put Into{}Clipboard",
+                       }
+        self._custom_actions.update(new_actions)
+        ########## Add new actions to the toolbar
+        self.addActions(new_actions.keys())
 
 
 class CoordinateSystemTab(QWidget):
@@ -1314,8 +1294,8 @@ class TracesTable(QTableWidget):
     def __init__(self, mpl_widget, plot_model):
         self.plot_model = plot_model
         self.mpl_widget = mpl_widget
-        headers = ["Name", "Pick Points", "Enable", "Export",
-                   "X Start", "X End"]
+        headers = ["Name", "Points", "Interpolation", "Enable",
+                   "Export", "X Start", "X End"]
         self.col_xstart = headers.index("X Start")
         self.col_xend = headers.index("X End")
         n_traces = len(plot_model.traces)
@@ -1324,13 +1304,11 @@ class TracesTable(QTableWidget):
         self.cbs_export = []
         self.cbs_enable = []
         super().__init__(n_traces, n_headers, mpl_widget)
-#        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
         self.setHorizontalHeaderLabels(headers)
         # Data Export options
         ###
-
         ###
-        i_types = {"linear": "Linear", "cubic": "C-Splines"}
+        i_types = {"cubic": "C-Splines", "linear": "Linear"}
         for row, tr in enumerate(self.plot_model.traces):
             name = QTableWidgetItem(tr.name)
             btn_pick_trace = NumberedButton(row, "Pick!", self)
@@ -1351,6 +1329,7 @@ class TracesTable(QTableWidget):
             self.setCellWidget(row, 4, cb_export)
             #self.setItem(row, 4, x_start)
             #self.setItem(row, 5, x_end)
+            self.resizeColumnsToContents()
             ##### Signals
             cb_export.i_toggled.connect(self.set_export)
             cb_enable.i_toggled.connect(self.mpl_widget.enable_trace)

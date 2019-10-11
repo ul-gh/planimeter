@@ -86,13 +86,19 @@ class MainWindow(QMainWindow):
         # Reopen last file if requested and if it exists
         if self.last_image_file != "":
             self.cw.mplws[0].load_image_file(self.last_image_file)
+        # Add to the central widget size for mainw autoscaling
+        self.toolbar_size_margins = 0, 0
         self.autoscale_window()
+
 
     @pyqtSlot()
     def autoscale_window(self):
         sh = self.cw.sizeHint()
         logger.debug(f"Autoscale Window Called. SizeHint is: {sh}")
         width, height = sh.width(), sh.height()
+        # +20 px for mainw contentsMargins, +6px for spacing
+        width += 20
+        height += 26
         width_max, height_max = self.conf.app_conf.autoscale_max_window_size
         if width > width_max or height > height_max:
             aspect = width / height

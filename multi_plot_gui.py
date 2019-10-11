@@ -52,12 +52,6 @@ class MultiPlotWidget(QTabWidget):
         self.conf = conf
         self.set_wdir(conf.app_conf.wdir)
 
-        # General text or warning message. This is accessed by some
-        # sub-widgets so the instance must be created early
-        self.messagebox = CustomisedMessageBox(self)
-        ########## Tab display on the left and right column
-        #self.tabs = QTabWidget(self)
-
         self.plots = []
         self.digitizers = []
         self.curr_plot_index = 0
@@ -72,11 +66,12 @@ class MultiPlotWidget(QTabWidget):
                 if member[1].__module__ == physical_models.__name__
                 ]
         self.phys_model_names = [model.name for model in self.phys_models]
-
         self.phys_model = None
         new_model = physical_models.MosfetDynamic(self, conf)
-        self.set_model(new_model)
-
+        ########## Add Widgets
+        self.messagebox = CustomisedMessageBox(self)
+        ########## Tab display on the left and right column
+        #self.tabs = QTabWidget(self)
         # Select, configure and export physical data models
         self.tab_physical_model = PhysicalModelTab(self, self.phys_models)
         # Launch Jupyter Console button
@@ -88,6 +83,9 @@ class MultiPlotWidget(QTabWidget):
         #self.tabs.addTab(self.btn_console, "IPython Console")
         self.addTab(self.tab_physical_model, "Physical Model")
         self.addTab(self.btn_console, "IPython Console")
+        # This adds more tabs, one for each plot
+        self.set_model(new_model)
+
         # Setup layout
         #self._set_layout()
 
@@ -116,30 +114,34 @@ class MultiPlotWidget(QTabWidget):
         logger.debug(f"Switching to plot no.: {new_index}")
         if new_index == self.curr_plot_index:
             return
-        # Disable current mplw toolbar
-        self.digitizers[self.curr_plot_index].mpl_widget.toolbar.setVisible(False)
+        # Disable current digitizer toolbar
+        self.digitizers[self.curr_plot_index].toolbar.setVisible(False)
         self.curr_digitizer = self.digitizers[new_index]
+        if self.currentWidget() is not self.curr_digitizer:
+            self.setCurrentWidget(self.curr_digitizer)
         self.curr_plot = self.plots[new_index]
         # Set new index, set shortcut properties and activate everything
-        self.digitizers[new_index].mpl_widget.toolbar.setVisible(True)
+        self.digitizers[new_index].toolbar.setVisible(True)
         self.curr_plot_index = new_index
 
     @pyqtSlot(int)
-    def remove_plot(self, index):
+    def remove_plot(self, plot_index):
         logger.debug(
-                f"Removing plot: {index} FIXME: Not yet complete? Must check.")
-        if index == self.curr_plot_index:
+                f"Removing plot: {plot_index} FIXME: Not yet complete? Must check.")
+        if plot_index == self.curr_plot_index:
             self.switch_plot_index[0]
-        digitizer = self.digitizers[index]
+        digitizer = self.digitizers[plot_index]
         digitizer.mpl_widget.canvas_rescaled.disconnect()
-        self.mainw.removeToolBar(digitizer.mpl_widget.toolbar)
-        #self.tabs.removeTab(index)
-        self.removeTab(index)
-        self.plot_model.remove_plot(index)
+        self.mainw.removeToolBar(digitizer.toolbar)
+        # Tab index differs from plot_index, tabs are movable etc.
+        tab_index = self.indexOf(digitizer)
+        #self.tabs.removeTab(tab_index)
+        self.removeTab(tab_index)
         digitizer.deleteLater()
-        del self.digitizers[index]
-        self.plots[index].value_error.disconnect()
-        del self.plots[index]
+        del self.digitizers[plot_index]
+        self.plots[plot_index].value_error.disconnect()
+        self.plot_model.remove_plot(plot_index)
+        del self.plots[plot_index]
 
     @pyqtSlot(PlotModel)
     def add_plot(self, plot_model):
@@ -149,7 +151,7 @@ class MultiPlotWidget(QTabWidget):
         new_index = len(self.plots) - 1
         digitizer = Digitizer(self, plot_model, new_index, self.conf)
         digitizer.mpl_widget.canvas_rescaled.connect(self.mainw.autoscale_window)
-        self.mainw.addToolBar(digitizer.mpl_widget.toolbar)
+        self.mainw.addToolBar(digitizer.toolbar)
         #self.tabs.addTab(digitizer, plot_model.name)
         #self.tabs.setCurrentWidget(digitizer)
         self.addTab(digitizer, plot_model.name)
