@@ -34,28 +34,36 @@ from plot_model import Trace, Axis
 from upylib.pyqt_debug import logExceptionSlot
 
 
-class Digitizer(QWidget):
-    def __init__(self, parent, plot_model, conf):
+#class Digitizer(QWidget):
+class Digitizer(QSplitter):
+    def __init__(self, parent, plot_model, index, conf):
         super().__init__(parent)
         self.conf = parent.conf
         self.set_wdir(conf.app_conf.wdir)
         ##### Data Model for one plot of one or more traces
         self.plot_model = plot_model
+        #### Index conforming with index of plots in a multi-plot model
+        self.index = index
         ##### Add widgets
         # Messagebox for confirming points deletion etc.
         self.messagebox = CustomisedMessageBox(self)
         # Right side shows single-plot configuration tabs
         self.tabs = QTabWidget()
         # Central Matplotlib Widget
-        self.mplw = MplWidget(self, plot_model)
+        self.mpl_widget = MplWidget(self, plot_model)
+        logger.debug(f"Added matplotlib widget: {self.mpl_widget}")
         # System clipboard instance already used by MplWidget
-        self.clipboard = self.mplw.clipboard
+        self.clipboard = self.mpl_widget.clipboard
         # Push buttons and axis value input fields widget.
-        self.tab_coordinate_system = CoordinateSystemTab(self.mplw, plot_model)
+        self.tab_coordinate_system = CoordinateSystemTab(self.mpl_widget, plot_model)
         # Trace Data Model tab
-        self.tab_trace_conf = TraceConfTab(self.mplw, plot_model)
+        self.tab_trace_conf = TraceConfTab(self.mpl_widget, plot_model)
         # Export options box
-        self.tab_export_settings = ExportSettingsTab(self.mplw, plot_model)
+        self.tab_export_settings = ExportSettingsTab(self.mpl_widget, plot_model)
+        # Add all tabs to QTabWidget
+        self.tabs.addTab(self.tab_coordinate_system, "Coordinate System")
+        self.tabs.addTab(self.tab_trace_conf, "Traces")
+        self.tabs.addTab(self.tab_export_settings, "Export Settings")
         # Toolbar to be used in Main Window
         self.toolbar = DigitizerToolBar(self)
         # Custom Dialogs for direct exporting
@@ -63,9 +71,10 @@ class Digitizer(QWidget):
                 self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
         self.dlg_export_xlsx = QFileDialog(
                 self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
+        self._set_layout()
         ##### Connect own and sub-widget signals
         # Mplwidget dialog box signals
-        self.mplw.dlg_open_image_file.directoryEntered.connect(self.set_wdir)
+        self.mpl_widget.dlg_open_image_file.directoryEntered.connect(self.set_wdir)
         # Own Dialog box signals
         self.dlg_export_csv.fileSelected.connect(self.export_csv)
         self.dlg_export_xlsx.fileSelected.connect(
@@ -123,6 +132,9 @@ class Digitizer(QWidget):
         qmd.setHtml(pts_html)
         self.clipboard.setMimeData(qmd)
 
+    #def sizeHint(self):
+        #return self.hsplitter.sizeHint()
+
     @staticmethod
     def _array2html(array, decimal_chr, num_fmt):
         """Make a HTML table with two columns from 2D numpy array
@@ -165,13 +177,17 @@ class Digitizer(QWidget):
     # Layout is two columns of widgets, arranged by movable splitter widgets
     def _set_layout(self):
         # Horizontal splitter layout is left and right side combined
-        hsplitter = QSplitter(Qt.Horizontal, self)
-        hsplitter.setChildrenCollapsible(False)
-        hsplitter.addWidget(self.mplw)
-        hsplitter.addWidget(self.tabs)
+        #hsplitter = QSplitter(Qt.Horizontal)
+        #hsplitter.setChildrenCollapsible(False)
+        #hsplitter.addWidget(self.mpl_widget)
+        #hsplitter.addWidget(self.tabs)
         # All combined
-        layout = QHBoxLayout(self)
-        layout.addWidget(hsplitter)
+        #layout = QHBoxLayout(self)
+        #layout.setContentsMargins(0, 0, 0, 0)
+        #layout.addWidget(hsplitter)
+        self.setChildrenCollapsible(False)
+        self.addWidget(self.mpl_widget)
+        self.addWidget(self.tabs)
 
 
 class MplWidget(QWidget):
@@ -204,7 +220,7 @@ class MplWidget(QWidget):
     mode_sw = pyqtSignal(int)
     # Emitted when the figure canvas is loaded initially or rescaled to inform
     # about bounding box size etc. Int argument is the current operation mode.
-    canvas_rescaled = pyqtSignal(int)
+    canvas_rescaled = pyqtSignal()
     # Emitts new X and Y coords in data space when pointer is inside mpl canvas.
     mouse_coordinates_updated = pyqtSignal(float, float)
 
@@ -216,7 +232,7 @@ class MplWidget(QWidget):
         self.clipboard = QApplication.instance().clipboard()
         # Messagebox for confirming points deletion etc.
         self.messagebox = CustomisedMessageBox(self)
-        ########## Access to the data model
+        ########## Access to the plot data model
         self.model = model
         ########## View-Model-Mapping
         # Mapping of individual view objects (lines, points) to the associated
@@ -268,9 +284,7 @@ class MplWidget(QWidget):
         self.fig.subplots_adjust(0.001, 0.002, 0.999, 0.999)
 
         ########## Initialise view from model
-        self.update_model_view_axes()
-        if model.coordinate_transformation_defined:
-            self.update_model_view_traces()
+        self.update_model_view()
        
         ########## Connect own signals
         self.toolbar.act_open_file.triggered.connect(self.dlg_open_image_file.open)
@@ -437,7 +451,7 @@ class MplWidget(QWidget):
         # Complete canvas redraw
         self.canvas_qt.draw()
         self.mpl_ax.autoscale(enable=False)
-        self.canvas_rescaled.emit(self._op_mode)
+        self.canvas_rescaled.emit()
         self.update_model_view()
 
 
@@ -458,6 +472,8 @@ class MplWidget(QWidget):
     ########## Data Output Methods
     def is_enabled_trace(self, trace_no: int) -> bool:
         tr = self.model.traces[trace_no]
+        if None in (tr.pts_view_obj, tr.pts_i_view_obj):
+            return False
         return tr.pts_view_obj.get_visible() or tr.pts_i_view_obj.get_visible()
 
     def print_model_view_items(self):
@@ -782,21 +798,21 @@ class MplWidget(QWidget):
     # Layout has only the matplotlib Qt AGG backend as a widget (canvas_qt)
     def _set_layout(self):
         self.setMinimumHeight(self.conf.app_conf.min_plotwin_height)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(1, 1, 2, 1)
-        layout.setSpacing(2)
         coords_hbox = coords_hbox = QHBoxLayout()
         coords_hbox.addStretch(1)
         coords_hbox.addWidget(self.cursor_xy_label)
         coords_hbox.addWidget(self.cursor_x_display)
         coords_hbox.addWidget(self.cursor_y_display)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(1, 1, 2, 1)
+        layout.setSpacing(2)
         layout.addLayout(coords_hbox)
         layout.addWidget(self.canvas_qt)
 
 
 class DigitizerToolBar(QToolBar):
     def __init__(self, parent):
-        super().__init__(parent)
+        super().__init__()
         ########## Define new actions
         icon_export = QIcon.fromTheme(
                 "document-save",
@@ -940,7 +956,7 @@ class TraceConfTab(QWidget):
         super().__init__(mpl_widget)
 
         ########## Widgets setup
-        self.table_tr_conf = TracesTable(mpl_widget)
+        self.table_tr_conf = TracesTable(mpl_widget, plot_model)
         self._set_layout()
 
         ########## Initialise view from plot_model
@@ -956,7 +972,7 @@ class TraceConfTab(QWidget):
 
     @logExceptionSlot(bool)
     def wip_do_plot(self, state):
-        trace = self.plot_model.traces[self.mplw.curr_trace_no]
+        trace = self.plot_model.traces[self.mpl_widget.curr_trace_no]
         self.plot_model.wip_export(trace)
         self.plot_model.wip_plot_cap_charge_e_stored(trace)
 
@@ -968,6 +984,7 @@ class TraceConfTab(QWidget):
 class ExportSettingsTab(QWidget):
     def __init__(self, mpl_widget, plot_model):
         super().__init__(mpl_widget)
+        self.plot_model = plot_model
         ######### Setup widgets
         ##### Upper grid layout: inputs + labels
         self.btn_preview = StyledButton("Preview Points")
@@ -1089,6 +1106,8 @@ class ExportSettingsTab(QWidget):
 class AxConfWidget(QWidget):
     def __init__(self, mpl_widget, plot_model):
         super().__init__(mpl_widget)
+        self.plot_model = plot_model
+        self.mpl_widget = mpl_widget
         ######### Qt widget setup
         #### Group box for X Coordinate picker and input boxes
         self.group_x = QGroupBox("Enter X Axis Start and End Values")
@@ -1221,10 +1240,9 @@ class AxConfWidget(QWidget):
 
 class CanvasExtentsBox(QGroupBox):
     def __init__(self, mpl_widget, plot_model):
-        super().__init__("Data Coordinate System", digitizer)
-        self.digitizer = digitizer
+        super().__init__("Data Coordinate System", mpl_widget)
         self.plot_model = plot_model
-        self.mplw = mplw
+        self.mpl_widget = mpl_widget
 
         ########## Widgets setup
         self.x_range_label = QLabel("Canvas X Data Extent:")
@@ -1238,7 +1256,7 @@ class CanvasExtentsBox(QGroupBox):
         
         ########## Initialise view from plot_model
         self.update_plot_model_view()
-        self.update_mplw_view(mplw.MODE_DEFAULT)
+        self.update_mpl_widget_view(mpl_widget.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
         self.x_min_edit.valid_number_entered.connect(self._set_canvas_extents)
@@ -1249,16 +1267,17 @@ class CanvasExtentsBox(QGroupBox):
         ########## Connect foreign signals
         #model.coordinate_system_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
-        mplw.canvas_rescaled.connect(self.update_mplw_view)
+        mpl_widget.canvas_rescaled.connect(self.update_mpl_widget_view)
 
     @logExceptionSlot()
     def update_plot_model_view(self):
         pass
 
+    @logExceptionSlot()
     @logExceptionSlot(int)
-    def update_mplw_view(self, op_mode):
-        xb = self.mplw.mpl_ax.get_xbound()
-        yb = self.mplw.mpl_ax.get_ybound()
+    def update_mpl_widget_view(self, op_mode=MplWidget.MODE_DEFAULT):
+        xb = self.mpl_widget.mpl_ax.get_xbound()
+        yb = self.mpl_widget.mpl_ax.get_ybound()
         bounds_px = np.concatenate((xb, yb)).reshape(-1, 2, order="F")
         bounds_data = self.plot_model.px_to_data(bounds_px)
         if bounds_data.shape[0] == 0:
@@ -1278,7 +1297,7 @@ class CanvasExtentsBox(QGroupBox):
         if not self.plot_model.validate_data_pts(xy_min_max):
             return
         bounds_px = self.plot_model.data_to_px(xy_min_max)
-        self.mplw.set_canvas_extents(bounds_px)
+        self.mpl_widget.set_canvas_extents(bounds_px)
 
     def _set_layout(self):
         layout = QGridLayout(self)
@@ -1292,9 +1311,9 @@ class CanvasExtentsBox(QGroupBox):
 
 
 class TracesTable(QTableWidget):
-    def __init__(self, digitizer, plot_model, mplw):
+    def __init__(self, mpl_widget, plot_model):
         self.plot_model = plot_model
-        self.mplw = mplw
+        self.mpl_widget = mpl_widget
         headers = ["Name", "Pick Points", "Enable", "Export",
                    "X Start", "X End"]
         self.col_xstart = headers.index("X Start")
@@ -1304,7 +1323,7 @@ class TracesTable(QTableWidget):
         self.btns_pick_trace = []
         self.cbs_export = []
         self.cbs_enable = []
-        super().__init__(n_traces, n_headers, digitizer)
+        super().__init__(n_traces, n_headers, mpl_widget)
 #        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
         self.setHorizontalHeaderLabels(headers)
         # Data Export options
@@ -1334,22 +1353,22 @@ class TracesTable(QTableWidget):
             #self.setItem(row, 5, x_end)
             ##### Signals
             cb_export.i_toggled.connect(self.set_export)
-            cb_enable.i_toggled.connect(self.mplw.enable_trace)
+            cb_enable.i_toggled.connect(self.mpl_widget.enable_trace)
 
         ########## Initialise view from plot_model
         self.update_plot_model_view()
-        self.update_mplw_view(mplw.MODE_DEFAULT)
+        self.update_mpl_widget_view(mpl_widget.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
         #self.itemSelectionChanged.connect(self._handle_selection)
         for btn in self.btns_pick_trace:
-            btn.i_toggled.connect(mplw.set_mode_add_trace_pts)
+            btn.i_toggled.connect(mpl_widget.set_mode_add_trace_pts)
 
         ########## Connect foreign signals
         # Update when trace config changes, e.g. if traces are added or renamed
         plot_model.tr_conf_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
-        mplw.mode_sw.connect(self.update_mplw_view)
+        mpl_widget.mode_sw.connect(self.update_mpl_widget_view)
 
     @logExceptionSlot()
     def update_plot_model_view(self):
@@ -1357,12 +1376,12 @@ class TracesTable(QTableWidget):
             self.cbs_export[i].setChecked(trace.export)
 
     @logExceptionSlot(int)
-    def update_mplw_view(self, op_mode):
+    def update_mpl_widget_view(self, op_mode):
         for i, trace in enumerate(self.plot_model.traces):
             self.btns_pick_trace[i].setChecked(
-                    i == self.mplw.curr_trace_no
-                    and op_mode == self.mplw.MODE_ADD_TRACE_PTS)
-            self.cbs_enable[i].setChecked(self.mplw.is_enabled_trace(i))
+                    i == self.mpl_widget.curr_trace_no
+                    and op_mode == self.mpl_widget.MODE_ADD_TRACE_PTS)
+            self.cbs_enable[i].setChecked(self.mpl_widget.is_enabled_trace(i))
 
     @logExceptionSlot(int, bool)
     def set_export(self, trace_no, state=True):

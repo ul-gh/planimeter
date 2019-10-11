@@ -89,9 +89,9 @@ class MainWindow(QMainWindow):
         self.autoscale_window()
 
     @pyqtSlot()
-    @pyqtSlot(int)
-    def autoscale_window(self, *_):
-        sh = self.sizeHint()
+    def autoscale_window(self):
+        sh = self.cw.sizeHint()
+        logger.debug(f"Autoscale Window Called. SizeHint is: {sh}")
         width, height = sh.width(), sh.height()
         width_max, height_max = self.conf.app_conf.autoscale_max_window_size
         if width > width_max or height > height_max:
@@ -150,14 +150,14 @@ if __name__ == "__main__":
 
     # Set up some shortcuts for command line interactive use.
     digitizer = mainw.cw.digitizers[0]
-    mplw = digitizer.mplw
+    mplw = digitizer.mpl_widget
     ax = mplw.mpl_ax
     fig = mplw.fig
     cv = mplw.canvas_qt
     redraw = mplw.canvas_qt.draw_idle
     print_model_view_items = mplw.print_model_view_items
 
-    plots = digitizer.model.plots
+    plots = mainw.cw.phys_model.plots
     tr1, tr2, tr3 = plots[0].traces[0:3]
 
     # When running from ipython shell, use its Qt GUI event loop

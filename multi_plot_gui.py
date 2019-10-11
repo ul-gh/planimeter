@@ -27,7 +27,7 @@ import physical_models
 from upylib.pyqt_debug import logExceptionSlot
 
 
-class MultiPlotWidget(QWidget):
+class MultiPlotWidget(QTabWidget):
     """PyQt5 widget for GUI interactive digitizing of data models.
     
     Each data model consists of one or more plots and specific
@@ -56,10 +56,11 @@ class MultiPlotWidget(QWidget):
         # sub-widgets so the instance must be created early
         self.messagebox = CustomisedMessageBox(self)
         ########## Tab display on the left and right column
-        self.tabs = QTabWidget(self)
+        #self.tabs = QTabWidget(self)
 
         self.plots = []
         self.digitizers = []
+        self.curr_plot_index = 0
         self.curr_plot = None
         self.curr_digitizer = None
 
@@ -80,16 +81,19 @@ class MultiPlotWidget(QWidget):
         self.tab_physical_model = PhysicalModelTab(self, self.phys_models)
         # Launch Jupyter Console button
         self.btn_console = QPushButton(
-                "Launch Jupyter Console\nIn Application Namespace", self)
+                "Launch Jupyter Console\nIn Application Namespace")
         # The first tab is supposed to be always present for setting the
         # multi-plot-model, while the other right-side tabs 
-        self.tabs.addTab(self.tab_physical_model, "Physical Model")
-        self.tabs.addTab(self.btn_console, "IPython Console")
+        #self.tabs.addTab(self.tab_physical_model, "Physical Model")
+        #self.tabs.addTab(self.btn_console, "IPython Console")
+        self.addTab(self.tab_physical_model, "Physical Model")
+        self.addTab(self.btn_console, "IPython Console")
         # Setup layout
-        self._set_layout()
+        #self._set_layout()
 
         ########## Connect own signals
-        self.tabs.currentChanged.connect(self.switch_plot_index)
+        #self.tabs.currentChanged.connect(self._on_tab_change)
+        self.currentChanged.connect(self._on_tab_change)
         ########## Connect foreign signals
 
 
@@ -109,27 +113,28 @@ class MultiPlotWidget(QWidget):
 
     @pyqtSlot(int)
     def switch_plot_index(self, new_index):
-        if new_index == self.current_plot_index:
+        logger.debug(f"Switching to plot no.: {new_index}")
+        if new_index == self.curr_plot_index:
             return
         # Disable current mplw toolbar
-        self.digitizers[self.current_plot_index].mplw.toolbar.setVisible(False)
+        self.digitizers[self.curr_plot_index].mpl_widget.toolbar.setVisible(False)
         self.curr_digitizer = self.digitizers[new_index]
         self.curr_plot = self.plots[new_index]
         # Set new index, set shortcut properties and activate everything
-        self.digitizers[new_index].mplw.toolbar.setVisible(True)
-        self.tab_coordinate_system.switch_plot_index(new_index)
-        self.current_plot_index = new_index
+        self.digitizers[new_index].mpl_widget.toolbar.setVisible(True)
+        self.curr_plot_index = new_index
 
     @pyqtSlot(int)
     def remove_plot(self, index):
         logger.debug(
                 f"Removing plot: {index} FIXME: Not yet complete? Must check.")
-        if index == self.current_plot_index:
+        if index == self.curr_plot_index:
             self.switch_plot_index[0]
         digitizer = self.digitizers[index]
-        digitizer.mplw.canvas_rescaled.disconnect()
-        self.mainw.removeToolBar(digitizer.mplw.toolbar)
-        self.tabs.removeTab(index)
+        digitizer.mpl_widget.canvas_rescaled.disconnect()
+        self.mainw.removeToolBar(digitizer.mpl_widget.toolbar)
+        #self.tabs.removeTab(index)
+        self.removeTab(index)
         self.plot_model.remove_plot(index)
         digitizer.deleteLater()
         del self.digitizers[index]
@@ -141,22 +146,38 @@ class MultiPlotWidget(QWidget):
         logger.debug(f"Adding plot: {plot_model.name}")
         plot_model.value_error.connect(self.messagebox.show_warning)
         self.plots.append(plot_model)
-        digitizer = Digitizer(self, plot_model, self.conf)
-        digitizer.mplw.canvas_rescaled.connect(self.mainw.autoscale_window)
-        self.mainw.addToolBar(digitizer.mplw.toolbar)
-        self.tabs.addTab(digitizer, plot_model.name)
+        new_index = len(self.plots) - 1
+        digitizer = Digitizer(self, plot_model, new_index, self.conf)
+        digitizer.mpl_widget.canvas_rescaled.connect(self.mainw.autoscale_window)
+        self.mainw.addToolBar(digitizer.mpl_widget.toolbar)
+        #self.tabs.addTab(digitizer, plot_model.name)
+        #self.tabs.setCurrentWidget(digitizer)
+        self.addTab(digitizer, plot_model.name)
+        self.setCurrentWidget(digitizer)
         self.digitizers.append(digitizer)
-        self.switch_plot_index(len(self.digitizers) - 1)
+        self.switch_plot_index(new_index)
 
     @pyqtSlot(str)
     def set_wdir(self, abs_path):
         # Set working directory to last opened file directory
         self.wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
 
-    def _set_layout(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.tabs)
+    @pyqtSlot(int)
+    def _on_tab_change(self, tab_index):
+        logger.debug(f"Selected tab no.: {tab_index}")
+        #tab_widget = self.tabs.widget(tab_index)
+        tab_widget = self.widget(tab_index)
+        if isinstance(tab_widget, Digitizer):
+            # Index is a Digitizer instance property, can be different from
+            # tab indices when tabs are movable
+            self.switch_plot_index(tab_widget.index)
+        elif True:
+            logger.debug("FIXME: MultiPlotWidget further tabs not implemented")
+
+    #def _set_layout(self):
+        #layout = QVBoxLayout(self)
+        #layout.setContentsMargins(0, 0, 0, 0)
+        #layout.addWidget(self.tabs)
 
 
 class PhysicalModelTab(QWidget):
@@ -205,7 +226,7 @@ class PhysicalModelTab(QWidget):
 
     @logExceptionSlot(bool)
     def wip_do_plot(self, state):
-        trace = self.model.traces[self.mplw.curr_trace_no]
+        trace = self.model.traces[self.mpl_widget.curr_trace_no]
         self.model.wip_export(trace)
         self.model.wip_plot_cap_charge_e_stored(trace)
 
