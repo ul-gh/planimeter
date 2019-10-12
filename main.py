@@ -114,17 +114,17 @@ class MainWindow(QMainWindow):
         This saves current configuration and axes properties if flag is set.
         """
         # Store axis configuration if requested
-        if self.cw.model.wants_persistent_storage:
+        if self.cw.curr_plot.wants_persistent_storage:
             logger.info("Storing axis configuration to disk..")
             self.conf.plot_conf.wants_persistent_storage = True
             # Getting plot configuration from Digitizer widget:
-            self.conf.x_ax_state = self.cw.model.x_ax.restorable_state()
-            self.conf.y_ax_state = self.cw.model.y_ax.restorable_state()
+            self.conf.x_ax_state = self.cw.curr_plot.x_ax.restorable_state()
+            self.conf.y_ax_state = self.cw.curr_plot.y_ax.restorable_state()
         else:
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None
         # Save working directory
-        self.conf.app_conf.wdir = self.digitizer.wdir
+        self.conf.app_conf.wdir = self.cw.wdir
         self.conf.app_conf.last_image_file = self.last_image_file
         # Store all configuration
         self.conf.store_to_configfile()
@@ -152,6 +152,7 @@ if __name__ == "__main__":
     # When run interactively in IPython shell, app instance might already exist
     app = QApplication.instance()
     if app is None:
+        logger.debug("Creating new QApplication")
         app = QApplication(sys.argv)
 
     mainw = MainWindow()
