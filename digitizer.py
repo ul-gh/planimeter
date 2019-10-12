@@ -51,7 +51,8 @@ class Digitizer(QSplitter):
         self.tabs = QTabWidget()
         # Central Matplotlib Widget
         self.mpl_widget = MplWidget(self, plot_model)
-        self.toolbar = self.mpl_widget.toolbar
+        ########## Toolbar to be later added to Main Window
+        self.toolbar = DigitizerToolBar(self.mpl_widget.canvas_qt, self)
         logger.debug(f"Added matplotlib widget: {self.mpl_widget}")
         # System clipboard instance already used by MplWidget
         self.clipboard = self.mpl_widget.clipboard
@@ -65,7 +66,9 @@ class Digitizer(QSplitter):
         self.tabs.addTab(self.tab_coordinate_system, "Coordinate System")
         self.tabs.addTab(self.tab_trace_conf, "Traces")
         self.tabs.addTab(self.tab_export_settings, "Export Settings")
-        # Custom Dialogs for direct exporting
+        # Custom Dialogs for file selection
+        self.dlg_open_image_file = QFileDialog(
+                self, "Open Source Image", self.wdir, "Images (*.png *.jpg *.jpeg)")
         self.dlg_export_csv = QFileDialog(
                 self, "Export CSV", self.wdir, "Text/CSV (*.csv *.txt)")
         self.dlg_export_xlsx = QFileDialog(
@@ -73,12 +76,18 @@ class Digitizer(QSplitter):
         self._set_layout()
         ##### Connect own and sub-widget signals
         # Mplwidget dialog box signals
-        self.mpl_widget.dlg_open_image_file.directoryEntered.connect(self.set_wdir)
+        self.dlg_open_image_file.directoryEntered.connect(self.set_wdir)
         # Own Dialog box signals
-        self.dlg_export_csv.fileSelected.connect(self.export_csv)
+        self.dlg_open_image_file.fileSelected.connect(
+                self.mpl_widget.load_image_file)
+        self.dlg_export_csv.fileSelected.connect(
+                self.export_csv)
         self.dlg_export_xlsx.fileSelected.connect(
                 lambda _: self.messagebox.show_warning("Not yet implemented!"))
         # ToolBar signals
+        self.toolbar.act_open_file.triggered.connect(self.dlg_open_image_file.open)
+        self.toolbar.act_load_clipboard.triggered.connect(
+                self.mpl_widget.load_clipboard_image)
         self.toolbar.act_export_csv.triggered.connect(self.dlg_export_csv.open)
         self.toolbar.act_export_xlsx.triggered.connect(self.dlg_export_xlsx.open)
         self.toolbar.act_put_clipboard.triggered.connect(self.put_clipboard)
@@ -265,15 +274,10 @@ class MplWidget(QWidget):
         # FigureCanvas factory of matplotlib Qt Agg backend takes the Figure
         # object and returns the matplotlib canvas as a QWidget instance.
         self.canvas_qt = FigureCanvas(self.fig)
-        # Custom Dialog
-        self.dlg_open_image_file = QFileDialog(
-                self, "Open Source Image", digitizer.wdir, "Images (*.png *.jpg *.jpeg)")
         # QTimer used for delayed screen updates in case the canvas is resized
         self._redraw_timer = QTimer(self, interval=500, singleShot=True)
         # Data coordinate display box displayed above plot canvas
         self._setup_coordinates_display()
-        ########## Toolbar to be later added to Main Window
-        self.toolbar = DigitizerToolBar(self.canvas_qt, self)
         # Add canvas_qt to own layout
         self._set_layout()
         
@@ -288,9 +292,6 @@ class MplWidget(QWidget):
         self.update_model_view()
        
         ########## Connect own signals
-        self.toolbar.act_open_file.triggered.connect(self.dlg_open_image_file.open)
-        self.toolbar.act_load_clipboard.triggered.connect(self.load_clipboard_image)
-        self.dlg_open_image_file.fileSelected.connect(self.load_image_file)
         # Matplotlib signals
         self.canvas_qt.mpl_connect("key_press_event", self._on_key_press)
         self.canvas_qt.mpl_connect("figure_enter_event", self._on_figure_enter)
@@ -823,20 +824,20 @@ class MplToolBar(NavigationToolbar2QT):
             # API buttons where the "Home" is the leftmost
             if text == "Home":
                 act.setText("Reset Zoom")
-                api_home = act
+                self.act_api_home = act
             # The matplotlib save button only saves a screenshot thus it should
             # be appropriately renamed
             elif text == "Save":
                 act.setText("Save as Image")
-                api_save = act
+                act_api_save = act
             elif text == "Customize":
                 act.setText("Figure Options")
-                api_customize = act            
+                act_api_customize = act            
             elif text in ("Back", "Forward", "Subplots"):
                 self.removeAction(act)
-        api_actions = {api_home: "Reset{}Zoom",
-                       api_save: "Save{}Image",
-                       api_customize: "Figure{}Options",
+        api_actions = {self.act_api_home: "Reset{}Zoom",
+                       act_api_save: "Save{}Image",
+                       act_api_customize: "Figure{}Options",
                        }
         ########## Define new actions
         icon_open = QIcon.fromTheme(
@@ -855,7 +856,7 @@ class MplToolBar(NavigationToolbar2QT):
                                 self.act_open_file: "Open File",
                                 }
         # Separator before first external API buttons
-        sep = self.insertSeparator(api_home)
+        sep = self.insertSeparator(self.act_api_home)
         ########## Add new actions to the toolbar
         self.insertActions(sep, self._custom_actions.keys())
         ########## Add original buttons to the dict of all custom actions
@@ -889,8 +890,9 @@ class MplToolBar(NavigationToolbar2QT):
 
 
 class DigitizerToolBar(MplToolBar):
-    def __init__(self, *args):
-        super().__init__(*args)
+    def __init__(self, mpl_canvas, digitizer):
+        super().__init__(mpl_canvas, digitizer)
+        self.setWindowTitle(digitizer.plot_model.name)
         ########## Define new actions
         icon_export = QIcon.fromTheme(
                 "document-save",
@@ -900,15 +902,15 @@ class DigitizerToolBar(MplToolBar):
                 self.style().standardIcon(QStyle.SP_ComputerIcon))
         self.act_put_clipboard = QAction(
                 icon_send,
-                "Put to Clipboard",
+                "Put Into Clipboard",
                 self)
         self.act_export_xlsx = QAction(
                 icon_export,
-                "Export data as XLSX",
+                "Export XLSX",
                 self)
         self.act_export_csv = QAction(
                 icon_export,
-                "Export data as CSV",
+                "Export CSV",
                 self)
         # Dict of our new actions plus text
         new_actions = {self.act_export_csv: "Export{}CSV",
@@ -917,7 +919,12 @@ class DigitizerToolBar(MplToolBar):
                        }
         self._custom_actions.update(new_actions)
         ########## Add new actions to the toolbar
-        self.addActions(new_actions.keys())
+        # Separator before first external API buttons
+        sep = self.insertSeparator(self.act_api_home)
+        self.insertActions(sep, new_actions.keys())
+        ##### Initial View Update
+        self._on_orientationChanged(Qt.Horizontal)
+        
 
 
 class CoordinateSystemTab(QWidget):

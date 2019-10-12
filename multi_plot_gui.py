@@ -54,7 +54,7 @@ class MultiPlotWidget(QTabWidget):
 
         self.plots = []
         self.digitizers = []
-        self.curr_plot_index = 0
+        self.curr_plot_index = -1 # 
         self.curr_plot = None
         self.curr_digitizer = None
 
@@ -75,14 +75,14 @@ class MultiPlotWidget(QTabWidget):
         # Select, configure and export physical data models
         self.tab_physical_model = PhysicalModelTab(self, self.phys_models)
         # Launch Jupyter Console button
-        self.btn_console = QPushButton(
-                "Launch Jupyter Console\nIn Application Namespace")
+        #self.btn_console = QPushButton(
+        #        "Launch Jupyter Console\nIn Application Namespace")
         # The first tab is supposed to be always present for setting the
         # multi-plot-model, while the other right-side tabs 
         #self.tabs.addTab(self.tab_physical_model, "Physical Model")
         #self.tabs.addTab(self.btn_console, "IPython Console")
         self.addTab(self.tab_physical_model, "Physical Model")
-        self.addTab(self.btn_console, "IPython Console")
+        #self.addTab(self.btn_console, "IPython Console")
         # This adds more tabs, one for each plot
         self.set_model(new_model)
 
@@ -110,18 +110,17 @@ class MultiPlotWidget(QTabWidget):
             self.add_plot(plot)
 
     @pyqtSlot(int)
-    def switch_plot_index(self, new_index):
+    def activate_plot_index(self, new_index):
         logger.debug(f"Switching to plot no.: {new_index}")
-        if new_index == self.curr_plot_index:
-            return
         # Disable current digitizer toolbar
-        self.digitizers[self.curr_plot_index].toolbar.setVisible(False)
+        if self.curr_digitizer is not None:
+            self.curr_digitizer.toolbar.setVisible(False)
         self.curr_digitizer = self.digitizers[new_index]
         if self.currentWidget() is not self.curr_digitizer:
             self.setCurrentWidget(self.curr_digitizer)
         self.curr_plot = self.plots[new_index]
         # Set new index, set shortcut properties and activate everything
-        self.digitizers[new_index].toolbar.setVisible(True)
+        self.curr_digitizer.toolbar.setVisible(True)
         self.curr_plot_index = new_index
 
     @pyqtSlot(int)
@@ -129,7 +128,7 @@ class MultiPlotWidget(QTabWidget):
         logger.debug(
                 f"Removing plot: {plot_index} FIXME: Not yet complete? Must check.")
         if plot_index == self.curr_plot_index:
-            self.switch_plot_index[0]
+            self.activate_plot_index[0]
         digitizer = self.digitizers[plot_index]
         digitizer.mpl_widget.canvas_rescaled.disconnect()
         self.mainw.removeToolBar(digitizer.toolbar)
@@ -155,14 +154,15 @@ class MultiPlotWidget(QTabWidget):
         #self.tabs.addTab(digitizer, plot_model.name)
         #self.tabs.setCurrentWidget(digitizer)
         self.addTab(digitizer, plot_model.name)
-        self.setCurrentWidget(digitizer)
+        #self.setCurrentWidget(digitizer)
         self.digitizers.append(digitizer)
-        self.switch_plot_index(new_index)
+        self.activate_plot_index(new_index)
 
     @pyqtSlot(str)
     def set_wdir(self, abs_path):
         # Set working directory to last opened file directory
         self.wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
+
 
     @pyqtSlot(int)
     def _on_tab_change(self, tab_index):
@@ -172,9 +172,10 @@ class MultiPlotWidget(QTabWidget):
         if isinstance(tab_widget, Digitizer):
             # Index is a Digitizer instance property, can be different from
             # tab indices when tabs are movable
-            self.switch_plot_index(tab_widget.index)
-        elif True:
-            logger.debug("FIXME: MultiPlotWidget further tabs not implemented")
+            self.activate_plot_index(tab_widget.index)
+        elif isinstance(tab_widget, PhysicalModelTab):
+            # Disable current digitizer toolbar
+            self.curr_digitizer.toolbar.setVisible(False)
 
     #def _set_layout(self):
         #layout = QVBoxLayout(self)

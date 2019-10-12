@@ -20,7 +20,8 @@ import pickle
 import numpy as np
 from numpy import NaN
 
-from PyQt5.QtCore import QSize, pyqtSlot
+from PyQt5.QtCore import Qt, QSize, pyqtSlot
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QMainWindow, QApplication
 
 from multi_plot_gui import MultiPlotWidget
@@ -68,26 +69,20 @@ class MainWindow(QMainWindow):
         conf.load_from_configfile()
 
         #self.setMinimumSize(QSize(*conf.app_conf.window_size))
-        self.setWindowTitle("Plot Workbench -- Main Window -- "
-                            "Digitize, Interpolate, Optimize, Approximate")
-
-        ########## Central Widget
-        self.cw = MultiPlotWidget(self, conf)
-        self.setCentralWidget(self.cw)
+        self.setWindowTitle("-- Plot Model Assistant -- Main Window --")
 
         ########## Embedded IPython Kernel and Jupyter Console Launcher
         self.ipyconsole = EmbeddedIPythonKernel(self)
-
-        ########## Connect foreign widget signals
-        self.cw.btn_console.clicked.connect(
-                self.ipyconsole.launch_jupyter_console_process)
+        self._add_toolbar()
+        ########## Central Widget
+        self.cw = MultiPlotWidget(self, conf)
+        self.setCentralWidget(self.cw)
 
         self.set_last_image_file(conf.app_conf.last_image_file)
         # Reopen last file if requested and if it exists
         if self.last_image_file != "":
             self.cw.mplws[0].load_image_file(self.last_image_file)
         # Add to the central widget size for mainw autoscaling
-        self.toolbar_size_margins = 0, 0
         self.autoscale_window()
 
 
@@ -142,6 +137,15 @@ class MainWindow(QMainWindow):
         # digitizer instance is set. Then, the input image file will be
         # re-loaded on next start
         self.last_image_file = abs_path if os.path.isfile(abs_path) else ""
+
+    def _add_toolbar(self):
+        self.toolbar = toolbar = self.addToolBar("Main Toolbar")
+        self.addToolBar(toolbar)
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        style = self.style()
+        icon = QIcon.fromTheme("arrow-up", style.standardIcon(style.SP_ArrowUp))
+        act = toolbar.addAction(icon, "Live Console")
+        act.triggered.connect(self.ipyconsole.launch_jupyter_console_process)
 
 
 if __name__ == "__main__":
