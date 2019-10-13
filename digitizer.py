@@ -34,8 +34,7 @@ from plot_model import Trace, Axis
 from upylib.pyqt_debug import logExceptionSlot
 
 
-#class Digitizer(QWidget):
-class Digitizer(QSplitter):
+class Digitizer(QWidget):
     def __init__(self, plot_model_assistant, plot_model, index, conf):
         super().__init__(plot_model_assistant)
         self.conf = plot_model_assistant.conf
@@ -49,13 +48,15 @@ class Digitizer(QSplitter):
         ##### Add widgets
         # Messagebox for confirming points deletion etc.
         self.messagebox = CustomisedMessageBox(self)
+        # Splitter dividing the horizontal space in two halves
+        self.splitter = QSplitter()
         # Right side shows single-plot configuration tabs
         self.tabs = QTabWidget()
         # Central Matplotlib Widget
         self.mpl_widget = MplWidget(self, plot_model)
+        logger.debug(f"Added matplotlib widget: {self.mpl_widget}")
         ########## Toolbar to be later added to Main Window
         self.toolbar = DigitizerToolBar(self.mpl_widget.canvas_qt, self)
-        logger.debug(f"Added matplotlib widget: {self.mpl_widget}")
         # System clipboard instance already used by MplWidget
         self.clipboard = self.mpl_widget.clipboard
         # Push buttons and axis value input fields widget.
@@ -76,6 +77,7 @@ class Digitizer(QSplitter):
         self.dlg_export_xlsx = QFileDialog(
                 self, "Export XLS/XLSX", self.wdir, "Excel (*.xlsx)")
         self._set_layout()
+        
         ##### Connect own and sub-widget signals
         # Mplwidget dialog box signals
         self.dlg_open_image_file.directoryEntered.connect(self.set_wdir)
@@ -143,8 +145,8 @@ class Digitizer(QSplitter):
         qmd.setHtml(pts_html)
         self.clipboard.setMimeData(qmd)
 
-    #def sizeHint(self):
-        #return self.hsplitter.sizeHint()
+    def sizeHint(self):
+        return self.splitter.sizeHint()
 
     @staticmethod
     def _array2html(array, decimal_chr, num_fmt):
@@ -188,19 +190,17 @@ class Digitizer(QSplitter):
     # Layout is two columns of widgets, arranged by movable splitter widgets
     def _set_layout(self):
         # Horizontal splitter layout is left and right side combined
-        #hsplitter = QSplitter(Qt.Horizontal)
-        #hsplitter.setChildrenCollapsible(False)
-        #hsplitter.addWidget(self.mpl_widget)
-        #hsplitter.addWidget(self.tabs)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.addWidget(self.mpl_widget)
+        self.splitter.addWidget(self.tabs)
+        logger.debug(f"DE_DEDE_DEBUG BEFORE Layout: {self.splitter.widget(0)}")
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 0)
         # All combined
-        #layout = QHBoxLayout(self)
-        #layout.setContentsMargins(0, 0, 0, 0)
-        #layout.addWidget(hsplitter)
-        self.addWidget(self.mpl_widget)
-        self.addWidget(self.tabs)
-        self.setChildrenCollapsible(False)
-        self.setStretchFactor(0, 1)
-        self.setStretchFactor(1, 0)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.splitter)
+        logger.debug(f"DE_DEDE_DEBUG After Layout: {self.splitter.widget(0)}")
 
 
 class MplWidget(QWidget):

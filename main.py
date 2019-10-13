@@ -91,10 +91,12 @@ class MainWindow(QMainWindow):
         sh = self.cw.sizeHint()
         logger.debug(f"Autoscale Window Called. SizeHint is: {sh}")
         width, height = sh.width(), sh.height()
-        aspect = width / height
-        # +20 px for mainw contentsMargins, +6px for spacing
-        width += 20
+        # Don't know where these pixels come from
         height += 26
+        aspect = width / height
+        # +20 px for mainw contentsMargins
+        width += 20
+        #height += 20
         width_max, height_max = self.conf.app_conf.autoscale_max_window_size
         if width > width_max or height > height_max:
             limit_aspect = width_max / height_max
