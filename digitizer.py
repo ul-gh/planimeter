@@ -36,9 +36,11 @@ from upylib.pyqt_debug import logExceptionSlot
 
 #class Digitizer(QWidget):
 class Digitizer(QSplitter):
-    def __init__(self, parent, plot_model, index, conf):
-        super().__init__(parent)
-        self.conf = parent.conf
+    def __init__(self, plot_model_assistant, plot_model, index, conf):
+        super().__init__(plot_model_assistant)
+        self.conf = plot_model_assistant.conf
+        ##### Back reference to MultiPlotAssistant instance
+        self.plot_model_assistant = plot_model_assistant
         self.set_wdir(conf.app_conf.wdir)
         ##### Data Model for one plot of one or more traces
         self.plot_model = plot_model
@@ -96,6 +98,7 @@ class Digitizer(QSplitter):
     def set_wdir(self, abs_path):
         # Set working directory to last opened file directory
         self.wdir = abs_path if os.path.isdir(abs_path) else QDir.homePath()
+        self.plot_model_assistant.set_wdir(self.wdir)
 
     # This is connected to from the main window toolbar!
     @logExceptionSlot(str)

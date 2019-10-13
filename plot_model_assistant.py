@@ -27,7 +27,7 @@ import physical_models
 from upylib.pyqt_debug import logExceptionSlot
 
 
-class MultiPlotWidget(QTabWidget):
+class PlotModelAssistant(QTabWidget):
     """PyQt5 widget for GUI interactive digitizing of data models.
     
     Each data model consists of one or more plots and specific

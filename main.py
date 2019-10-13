@@ -24,7 +24,7 @@ from PyQt5.QtCore import Qt, QSize, pyqtSlot
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QMainWindow, QApplication
 
-from multi_plot_gui import MultiPlotWidget
+from plot_model_assistant import PlotModelAssistant
 from default_configuration import APPLICATION, PLOT_MODEL, TRACE, X_AXIS, Y_AXIS
 
 from embedded_ipython import EmbeddedIPythonKernel
@@ -75,13 +75,13 @@ class MainWindow(QMainWindow):
         self.ipyconsole = EmbeddedIPythonKernel(self)
         self._add_toolbar()
         ########## Central Widget
-        self.cw = MultiPlotWidget(self, conf)
+        self.cw = PlotModelAssistant(self, conf)
         self.setCentralWidget(self.cw)
 
         self.set_last_image_file(conf.app_conf.last_image_file)
         # Reopen last file if requested and if it exists
         if self.last_image_file != "":
-            self.cw.mplws[0].load_image_file(self.last_image_file)
+            self.cw.curr_digitizer.mpl_widget.load_image_file(self.last_image_file)
         # Add to the central widget size for mainw autoscaling
         self.autoscale_window()
 
@@ -91,12 +91,12 @@ class MainWindow(QMainWindow):
         sh = self.cw.sizeHint()
         logger.debug(f"Autoscale Window Called. SizeHint is: {sh}")
         width, height = sh.width(), sh.height()
+        aspect = width / height
         # +20 px for mainw contentsMargins, +6px for spacing
         width += 20
         height += 26
         width_max, height_max = self.conf.app_conf.autoscale_max_window_size
         if width > width_max or height > height_max:
-            aspect = width / height
             limit_aspect = width_max / height_max
             if aspect > limit_aspect:
                 width = width_max
@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def set_last_image_file(self, abs_path):
+        logger.warning("This should go into each plot data model")
         # This property will be reloaded if persistent_storage property of
         # digitizer instance is set. Then, the input image file will be
         # re-loaded on next start
