@@ -847,7 +847,8 @@ class Trace(QObject):
             'k':    black
             'w':    white
         """
-        self.pts_fmt = dict(self.tr_conf.pts_fmt, **{"color": color_code})
+        self.pts_fmt["color"] = color_code
+        self.pts_i_fmt["color"] = color_code
         self.model.tr_conf_changed.emit()
 
     def clear_trace(self):

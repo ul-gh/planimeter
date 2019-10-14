@@ -308,11 +308,13 @@ class MplWidget(QWidget):
         self._redraw_timer.timeout.connect(self._do_blit_redraw)
 
         ########## Connect foreign signals
+        # Complete traces update
+        model.tr_conf_changed.connect(self.update_model_view)
         # Update plot view displaying axes points and origin
         model.ax_conf_changed.connect(self.update_model_view_axes)
         # Re-display pixel-space input points when model has updated data.
-        model.output_data_changed.connect(self.update_model_view_traces)
-        model.output_data_changed[int].connect(self.update_model_view_traces)
+        model.output_data_changed.connect(self.update_model_view_traces_data)
+        model.output_data_changed[int].connect(self.update_model_view_traces_data)
 
 
     ########## Configuration
@@ -335,15 +337,24 @@ class MplWidget(QWidget):
         trace.pts_view_obj.set_visible(state)
         trace.pts_i_view_obj.set_visible(state)
         self._blit_buffer_stale = True
-        self.update_model_view_traces(trace_no)
+        self.update_model_view_traces_data(trace_no)
 
     @logExceptionSlot()
     def update_model_view(self):
         """Complete update of axes and traces features from model data
         """
         self.update_model_view_axes()
+        for tr in self.model.traces:
+            if tr.pts_view_obj is not None:
+                del self._view_model_map[tr.pts_view_obj]
+                tr.pts_view_obj.remove()
+                tr.pts_view_obj = None
+            if tr.pts_i_view_obj is not None:
+                del self._view_model_map[tr.pts_i_view_obj]
+                tr.pts_i_view_obj.remove()
+                tr.pts_i_view_obj = None
         self._blit_buffer_stale = True
-        self.update_model_view_traces()
+        self.update_model_view_traces_data()
     
     @logExceptionSlot()
     def update_model_view_axes(self):
@@ -387,16 +398,15 @@ class MplWidget(QWidget):
         ##### Redraw axes and origin view objects
         self._do_blit_redraw()
 
-
     @pyqtSlot()
     @pyqtSlot(int)
-    def update_model_view_traces(self, trace_no=None):
+    def update_model_view_traces_data(self, trace_no=None):
         """Draw or redraw a trace from the data model.
         
         If the argument is None, update all traces.
         This also registers the view objects back into the model.
         """
-        #logger.debug(f"update_model_view_traces called for trace: {trace_no}")
+        #logger.debug(f"update_model_view_traces_data called for trace: {trace_no}")
         model = self.model
         traces = model.traces if trace_no is None else [model.traces[trace_no]]
         self._tr_view_objs = []
@@ -1318,6 +1328,7 @@ class TracesTable(QTableWidget):
         self.interp_types = ("C-Splines", "Linear")
         self.colors = {"Cyan": "c", "Magenta": "m", "Yellow": "y", "Red": "r",
                        "Green": "g", "Blue": "b", "Black": "k"}
+        self.colors_reverse = {v: k for k, v in self.colors.items()}
 
         ########## Initialise view from plot_model
         self.update_plot_model_view()
@@ -1349,8 +1360,10 @@ class TracesTable(QTableWidget):
             cb_enable = NumberedCenteredCheckbox(row)
             cb_export = NumberedCenteredCheckbox(row)
             cb_export.setChecked(tr.export)
+            color_key = self.colors_reverse[tr.pts_fmt["color"]]
             combo_color = QComboBox()
             combo_color.addItems(self.colors.keys())
+            combo_color.setCurrentText(color_key)
             x_start = QTableWidgetItem("0 %")
             x_end = QTableWidgetItem("100 %")
             self.setItem(row, 0, name)
