@@ -309,7 +309,7 @@ class MplWidget(QWidget):
 
         ########## Connect foreign signals
         # Update plot view displaying axes points and origin
-        model.ax_input_data_changed.connect(self.update_model_view_axes)
+        model.ax_conf_changed.connect(self.update_model_view_axes)
         # Re-display pixel-space input points when model has updated data.
         model.output_data_changed.connect(self.update_model_view_traces)
         model.output_data_changed[int].connect(self.update_model_view_traces)
@@ -1152,7 +1152,7 @@ class AxConfWidget(QWidget):
 
         ########## Connect foreign signals
         # Update when axes config changes
-        plot_model.ax_input_data_changed.connect(self.update_plot_model_view)
+        plot_model.ax_conf_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
         mpl_widget.mode_sw.connect(self.update_mpl_widget_view)
 
@@ -1302,56 +1302,30 @@ class CanvasExtentsBox(QGroupBox):
 
 class TracesTable(QTableWidget):
     def __init__(self, mpl_widget, plot_model):
+        super().__init__(mpl_widget)
+        # Prevent (recursive) updates when set
+        self._inhibit_updates = False
         self.plot_model = plot_model
         self.mpl_widget = mpl_widget
         headers = ["Name", "Points", "Interpolation", "Enable",
-                   "Export", "X Start", "X End"]
+                   "Export", "Color", "X Start", "X End"]
+        self.setColumnCount(len(headers))
+        self.setHorizontalHeaderLabels(headers)
         self.col_xstart = headers.index("X Start")
         self.col_xend = headers.index("X End")
-        n_traces = len(plot_model.traces)
-        n_headers = len(headers)
         self.btns_pick_trace = []
-        self.cbs_export = []
         self.cbs_enable = []
-        super().__init__(n_traces, n_headers, mpl_widget)
-        self.setHorizontalHeaderLabels(headers)
-        # Data Export options
-        ###
-        ###
-        i_types = {"cubic": "C-Splines", "linear": "Linear"}
-        for row, tr in enumerate(self.plot_model.traces):
-            name = QTableWidgetItem(tr.name)
-            btn_pick_trace = NumberedButton(row, "Pick!", self)
-            self.btns_pick_trace.append(btn_pick_trace)
-            cb_export = NumberedCenteredCheckbox(row, self)
-            self.cbs_export.append(cb_export)
-            cb_enable = NumberedCenteredCheckbox(row, self)
-            self.cbs_enable.append(cb_enable)
-            #x_start = QTableWidgetItem(f"{tr.x_start_export}")
-            #x_end = QTableWidgetItem(f"{tr.x_end_export}")
-            combo_i_type = QComboBox(self)
-            for key, value in i_types.items():
-                combo_i_type.addItem(value, key)
-            self.setItem(row, 0, name)
-            self.setCellWidget(row, 1, btn_pick_trace)
-            self.setCellWidget(row, 2, combo_i_type)
-            self.setCellWidget(row, 3, cb_enable)
-            self.setCellWidget(row, 4, cb_export)
-            #self.setItem(row, 4, x_start)
-            #self.setItem(row, 5, x_end)
-            self.resizeColumnsToContents()
-            ##### Signals
-            cb_export.i_toggled.connect(self.set_export)
-            cb_enable.i_toggled.connect(self.mpl_widget.enable_trace)
+        self.interp_types = ("C-Splines", "Linear")
+        self.colors = {"Cyan": "c", "Magenta": "m", "Yellow": "y", "Red": "r",
+                       "Green": "g", "Blue": "b", "Black": "k"}
 
         ########## Initialise view from plot_model
         self.update_plot_model_view()
         self.update_mpl_widget_view(mpl_widget.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
+        self.cellChanged.connect(self.on_cell_changed)
         #self.itemSelectionChanged.connect(self._handle_selection)
-        for btn in self.btns_pick_trace:
-            btn.i_toggled.connect(mpl_widget.set_mode_add_trace_pts)
 
         ########## Connect foreign signals
         # Update when trace config changes, e.g. if traces are added or renamed
@@ -1361,22 +1335,105 @@ class TracesTable(QTableWidget):
 
     @logExceptionSlot()
     def update_plot_model_view(self):
-        for i, trace in enumerate(self.plot_model.traces):
-            self.cbs_export[i].setChecked(trace.export)
+        # Prevent recursive updates
+        self._inhibit_updates = True
+        # Delete and disconnect items from old rows
+        self.clearContents()
+        # Populate table
+        self.setRowCount(1 + len(self.plot_model.traces))
+        for row, tr in enumerate(self.plot_model.traces):
+            name = QTableWidgetItem(tr.name)
+            btn_pick = NumberedButton(row, "Pick!")
+            combo_interp_type = QComboBox()
+            combo_interp_type.addItems(self.interp_types)
+            cb_enable = NumberedCenteredCheckbox(row)
+            cb_export = NumberedCenteredCheckbox(row)
+            cb_export.setChecked(tr.export)
+            combo_color = QComboBox()
+            combo_color.addItems(self.colors.keys())
+            x_start = QTableWidgetItem("0 %")
+            x_end = QTableWidgetItem("100 %")
+            self.setItem(row, 0, name)
+            self.setCellWidget(row, 1, btn_pick)
+            self.setCellWidget(row, 2, combo_interp_type)
+            self.setCellWidget(row, 3, cb_enable)
+            self.setCellWidget(row, 4, cb_export)
+            self.setCellWidget(row, 5, combo_color)
+            self.setItem(row, 6, x_start)
+            self.setItem(row, 7, x_end)
+            ##### Signals
+            btn_pick.i_toggled.connect(self.mpl_widget.set_mode_add_trace_pts)
+            combo_interp_type.currentIndexChanged[str].connect(self.set_i_type)
+            cb_enable.i_toggled.connect(self.mpl_widget.enable_trace)
+            cb_export.i_toggled.connect(self.set_export)
+            combo_color.currentIndexChanged[str].connect(self.set_color)
+        # Add placeholder for adding new traces
+        row += 1
+        self.itm_add_new = QTableWidgetItem("Add New!")
+        self.setItem(row, 0, self.itm_add_new)
+        self.resizeColumnsToContents()
+        self._inhibit_updates = False
 
     @logExceptionSlot(int)
-    def update_mpl_widget_view(self, op_mode):
-        for i, trace in enumerate(self.plot_model.traces):
-            self.btns_pick_trace[i].setChecked(
-                    i == self.mpl_widget.curr_trace_no
+    def update_mpl_widget_view(self, op_mode):     
+        # Prevent recursive updates
+        if self._inhibit_updates:
+            return
+        for row, tr in enumerate(self.plot_model.traces):
+            btn_pick = self.cellWidget(row, 1)
+            cb_enable = self.cellWidget(row, 3)
+            btn_pick.setChecked(
+                    row == self.mpl_widget.curr_trace_no
                     and op_mode == self.mpl_widget.MODE_ADD_TRACE_PTS)
-            self.cbs_enable[i].setChecked(self.mpl_widget.is_enabled_trace(i))
+            cb_enable.setChecked(self.mpl_widget.is_enabled_trace(row))
+
+    @logExceptionSlot(str)
+    def on_cell_changed(self, row, column):
+        # Prevent recursive updates
+        if self._inhibit_updates:
+            return
+        self._inhibit_updates = True
+        itm = self.item(row, column)
+        if itm is self.itm_add_new:
+            name = itm.text().lstrip().rstrip()
+            if name == "Add New!":
+                return
+            if name != "" and name.isprintable():
+                logger.debug(
+                        f'Adding trace "{name}" for "{self.plot_model.name}"')
+                self.plot_model.add_trace(name)
+            else:
+                self.plot_model.value_error.emit("Invalid Name!")
+                itm.setText("Add New!")
+        elif column == 0:
+            # Changing trace name
+            name = itm.text().lstrip().rstrip()
+            trace = self.plot_model.traces[row]
+            if name != "" and name.isprintable():
+                logger.debug(
+                        f'Changing name "{name}" for "{self.plot_model.name}"')
+                trace.set_name(name)
+            else:
+                self.plot_model.value_error.emit("Invalid Name!")
+                itm.setText(trace.name)
+        self._inhibit_updates = False
+
 
     @logExceptionSlot(int, bool)
     def set_export(self, trace_no, state=True):
         trace = self.plot_model.traces[trace_no]
         trace.export = state
 
+    @logExceptionSlot(str)
+    def set_i_type(self, interp_type: str):
+        trace = self.plot_model.traces[self.currentRow()]
+        trace.set_interp_type(interp_type)
+
+    @logExceptionSlot(str)
+    def set_color(self, color_keyword: str):
+        trace = self.plot_model.traces[self.currentRow()]
+        color_code = self.colors[color_keyword]
+        trace.set_color(color_code)
 #    def _handle_selection(self):
 #        self.sel_traces = sel_traces = {
 #                s.row() for s in self.selectedIndexes()

@@ -112,7 +112,7 @@ class NumberedCenteredCheckbox(QWidget):
     # https://bugreports.qt.io/browse/QTBUG-5368
     i_toggled = pyqtSignal(int, bool)
 
-    def __init__(self, index, parent, *args, **kwargs):
+    def __init__(self, index, parent=None, *args, **kwargs):
         super().__init__(parent)
         self._index = index
         self.cbox = QCheckBox(self, *args, **kwargs)
@@ -140,7 +140,7 @@ class NumberedCenteredCheckbox(QWidget):
 class CustomisedMessageBox(QMessageBox):
     """Messagebox with some common standard modal methods
     """
-    def __init__(self, parent):
+    def __init__(self, parent=None):
         super().__init__(parent)
         
     @pyqtSlot(Exception)

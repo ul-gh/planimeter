@@ -57,14 +57,14 @@ class PlotModel(QObject):
     # Since the input data is normally set by the view itself, a redraw of raw
     # input data is not performed when this signal is emitted.
     output_data_changed = pyqtSignal([], [int])
-    # When a trace is added, deleted or config modified, this signal is emitted
-    tr_conf_changed = pyqtSignal()
-    # Emitted from the axes objects, updates all view outputs
-    ax_input_data_changed = pyqtSignal()
     # Triggers updates of coordinate settings box
     coordinate_system_changed = pyqtSignal()
     # Mainly used for configuring export options
     export_settings_changed = pyqtSignal()
+    # For updating the GUI display of axes properties
+    ax_conf_changed = pyqtSignal()
+    # Same for traces properties, but also signals when a NEW TRACE is added
+    tr_conf_changed = pyqtSignal()
     # GUI error feedback when invalid data was entered
     value_error = pyqtSignal(str)
     # GUI feedback when export range settings are outside of points range
@@ -72,6 +72,7 @@ class PlotModel(QObject):
 
     def __init__(self, parent, conf):
         super().__init__(parent)
+        self.conf = conf
         ########## Plot model composition
         self.name = "Plot Model"
         ##### Two axes
@@ -138,9 +139,9 @@ class PlotModel(QObject):
         ########## Initialise model outputs if axes are configured
         if self.axes_setup_is_complete:
             self._calc_coordinate_transformation()
-            
+
         ########## Connect axes input changes to own calculation
-        self.ax_input_data_changed.connect(self._calc_coordinate_transformation)
+        self.ax_conf_changed.connect(self._calc_coordinate_transformation)
         
         ########## Connect trace config changes to own outputs calculation
         self.tr_conf_changed.connect(self._process_tr_input_data)
@@ -354,6 +355,25 @@ class PlotModel(QObject):
 
 
     ########## Configuration and Validation Properties and Methods
+    @pyqtSlot(str)
+    def add_trace(self, name: str, color: str = "k"):
+        trace_no = len(self.traces)
+        new_trace = Trace(self, self.conf.trace_conf, trace_no, name, color)
+        self.traces.append(new_trace)
+        self.tr_conf_changed.emit()
+
+    @pyqtSlot(int)
+    def remove_trace(self, trace_no: int):
+        del self.traces[trace_no]
+        self.tr_conf_changed.emit()
+
+    @pyqtSlot(bool)
+    def set_wants_persistent_storage(self, state=True):
+        """Sets flag to request axes configuration to be saved and restored
+        when the application is closed
+        """
+        self.wants_persistent_storage = state
+
     @property
     def axes_setup_is_complete(self) -> bool:
         """Returns True if both axes configuration is complete and valid
@@ -367,13 +387,6 @@ class PlotModel(QObject):
         """
         return (self.data_to_px_mat is not None
                 and self.px_to_data_mat is not None)
-
-    @pyqtSlot(bool)
-    def set_wants_persistent_storage(self, state=True):
-        """Sets flag to request axes configuration to be saved and restored
-        when the application is closed
-        """
-        self.wants_persistent_storage = state
 
 
     ########## Intermediate Data Related Methods
@@ -614,10 +627,10 @@ class PlotModel(QObject):
         # Scale must be multiplied from the right-hand side.
         self.data_to_px_mat = data_unit_base @ scale_mat
 
+        self.coordinate_system_changed.emit()
         # Affine-linear coordinate transformation is now defined, trigger an
         # update of all plot traces in case trace data is already available.
         self._process_tr_input_data() # Emits the "output_data_changed" signal.
-        self.coordinate_system_changed.emit()
 
     @logExceptionSlot()
     @logExceptionSlot(int)
@@ -749,6 +762,7 @@ class Trace(QObject):
     """
     def __init__(self, model, tr_conf, trace_no: int, name: str, color: str):
         super().__init__(model)
+        self.tr_conf = tr_conf
         ########## Connection to the containing data model
         self.model = model
         ########## Plot trace configuration
@@ -812,6 +826,29 @@ class Trace(QObject):
                 "derivative": partial(misc.derivative, self.f_interp),
                 }
 
+    def set_interp_type(self, i_type: str):
+        self.interp_type = "linear" if i_type.lower() == "linear" else "cubic"
+        self.model._process_tr_input_data(self.trace_no)
+
+    @pyqtSlot(str)
+    def set_name(self, name: str):
+        self.name = name
+        self.model.tr_conf_changed.emit()
+
+    @pyqtSlot(str)
+    def set_color(self, color_code: str):
+        """Valid color codes:
+            'b':    blue
+            'g':    green
+            'r':    red
+            'c':    cyan
+            'm':    magenta
+            'y':    yellow
+            'k':    black
+            'w':    white
+        """
+        self.pts_fmt = dict(self.tr_conf.pts_fmt, **{"color": color_code})
+        self.model.tr_conf_changed.emit()
 
     def clear_trace(self):
         """Clears this trace and re-initialises with zero presets
@@ -1082,7 +1119,7 @@ class Axis(QObject):
                     "Axis values must be greater than zero for log axes")
         else:
             self.log_scale = state
-        self.model.ax_input_data_changed.emit()
+        self.model.ax_conf_changed.emit()
 
 
     @logExceptionSlot(float)
@@ -1107,7 +1144,7 @@ class Axis(QObject):
             self.sect_data[0] = value
             self.pts_data_valid = not isnan(self.sect_data).any()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.ax_input_data_changed.emit()
+        self.model.ax_conf_changed.emit()
 
     @logExceptionSlot(float)
     def set_ax_end(self, value: float):
@@ -1131,7 +1168,7 @@ class Axis(QObject):
             self.sect_data[1] = value
             self.pts_data_valid = not isnan(self.sect_data).any()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.ax_input_data_changed.emit()
+        self.model.ax_conf_changed.emit()
 
     def add_pt_px(self, xy_px: Iterable[float]) -> int:
         """Add a point defining an axis section
@@ -1169,7 +1206,7 @@ class Axis(QObject):
         self.pts_px[index] = xy_px
         self.pts_px_valid = not isnan(self.pts_px).any()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.ax_input_data_changed.emit()
+        self.model.ax_conf_changed.emit()
         return index
 
     def update_pt_px(self, xy_px: Iterable[float], index: int):
@@ -1184,7 +1221,7 @@ class Axis(QObject):
         self.pts_px[index] = xy_px
         self.pts_px_valid = not isnan(self.pts_px).any()
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.ax_input_data_changed.emit()
+        self.model.ax_conf_changed.emit()
 
     def delete_pt_px(self, index: int):
         """Delete axis point in pixel coordinates and invalidates state
@@ -1192,7 +1229,7 @@ class Axis(QObject):
         self.pts_px[index] = np.full(2, NaN)
         self.pts_px_valid = False
         # Updates model outputs etc. when X and Y axis setup is complete
-        self.model.ax_input_data_changed.emit()
+        self.model.ax_conf_changed.emit()
     
     def __str__(self):
         return self.name
