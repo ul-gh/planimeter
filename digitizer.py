@@ -11,6 +11,7 @@ import io
 import os
 import tempfile
 import numpy as np
+from collections import OrderedDict
 from numpy import NaN, isnan
 
 from PyQt5.QtCore import Qt, QDir, QSize, QMimeData, QTimer, pyqtSlot, pyqtSignal
@@ -1326,13 +1327,15 @@ class TracesTable(QTableWidget):
         self.btns_pick_trace = []
         self.cbs_enable = []
         self.interp_types = ("C-Splines", "Linear")
-        self.colors = {"Cyan": "c", "Magenta": "m", "Yellow": "y", "Red": "r",
-                       "Green": "g", "Blue": "b", "Black": "k"}
+        self.colors = OrderedDict((
+                ("Cyan", "c"), ("Magenta", "m"), ("Yellow", "y"),
+                ("Red", "r"), ("Green", "g"), ("Blue", "b"), ("Black", "k")
+                ))
         self.colors_reverse = {v: k for k, v in self.colors.items()}
 
         ########## Initialise view from plot_model
         self.update_plot_model_view()
-        self.update_mpl_widget_view(mpl_widget.MODE_DEFAULT)
+        self.update_mpl_widget_view()
 
         ########## Connect own and sub-widget signals
         self.cellChanged.connect(self.on_cell_changed)
@@ -1346,10 +1349,12 @@ class TracesTable(QTableWidget):
 
     @logExceptionSlot()
     def update_plot_model_view(self):
+        logger.debug("Update plot_model_view for traces table called.")
         # Prevent recursive updates
         self._inhibit_updates = True
         # Delete and disconnect items from old rows
         self.clearContents()
+        self.clearSpans()
         # Populate table
         self.setRowCount(1 + len(self.plot_model.traces))
         for row, tr in enumerate(self.plot_model.traces):
@@ -1383,12 +1388,19 @@ class TracesTable(QTableWidget):
         # Add placeholder for adding new traces
         row += 1
         self.itm_add_new = QTableWidgetItem("Add New!")
+        itm_remarks = QTableWidgetItem(
+                "Enter name to add trace.  Delete any name to remove.")
+        itm_remarks.setFlags(itm_remarks.flags() & ~Qt.ItemIsEnabled)
         self.setItem(row, 0, self.itm_add_new)
         self.resizeColumnsToContents()
+        self.setItem(row, 1, itm_remarks)
+        self.setSpan(row, 1, 1, self.columnCount()-1)
         self._inhibit_updates = False
+        self.update_mpl_widget_view()
 
+    @logExceptionSlot()
     @logExceptionSlot(int)
-    def update_mpl_widget_view(self, op_mode):     
+    def update_mpl_widget_view(self, op_mode=MplWidget.MODE_DEFAULT):     
         # Prevent recursive updates
         if self._inhibit_updates:
             return
@@ -1422,7 +1434,9 @@ class TracesTable(QTableWidget):
             # Changing trace name
             name = itm.text().lstrip().rstrip()
             trace = self.plot_model.traces[row]
-            if name != "" and name.isprintable():
+            if name == "":
+                self.plot_model.remove_trace(row)
+            elif name.isprintable():
                 logger.debug(
                         f'Changing name "{name}" for "{self.plot_model.name}"')
                 trace.set_name(name)
