@@ -54,7 +54,7 @@ class PlotModelAssistant(QTabWidget):
 
         self.plots = []
         self.digitizers = []
-        self.curr_plot_index = -1 # 
+        self.curr_plot_index = -1 # Becomes zero at first append/update
         self.curr_plot = None
         self.curr_digitizer = None
 
@@ -67,7 +67,7 @@ class PlotModelAssistant(QTabWidget):
                 ]
         self.phys_model_names = [model.name for model in self.phys_models]
         self.phys_model = None
-        new_model = physical_models.MosfetDynamic(self, conf)
+        new_model = physical_models.MosfetDynamic(self)
         ########## Add Widgets
         self.messagebox = CustomisedMessageBox(self)
         ########## Tab display on the left and right column

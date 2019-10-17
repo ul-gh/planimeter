@@ -70,11 +70,15 @@ class PlotModel(QObject):
     # GUI feedback when export range settings are outside of points range
     export_range_warning = pyqtSignal(str)
 
-    def __init__(self, parent, conf):
+    def __init__(self, parent, name="Plot Model", trace_names=[], colors=[]):
         super().__init__(parent)
-        self.conf = conf
+        self.conf = conf = parent.conf
+        if not trace_names:
+            trace_names = conf.plot_conf.traces_names
+        if not colors:
+            colors = conf.plot_conf.traces_colors
         ########## Plot model composition
-        self.name = "Plot Model"
+        self.name = name
         ##### Two axes
         self.x_ax = Axis(self, conf.x_ax_conf, "X Axis")
         self.y_ax = Axis(self, conf.y_ax_conf, "Y Axis")
@@ -93,9 +97,9 @@ class PlotModel(QObject):
             Trace(self, conf.trace_conf, trace_no, name, color)
             for trace_no, name, color
             in zip( # trace_no: enumeration from zero in order of traces_names
-                    range(len(conf.plot_conf.traces_names)),
-                    conf.plot_conf.traces_names,
-                    conf.plot_conf.traces_colors,
+                    range(len(trace_names)),
+                    trace_names,
+                    colors,
                     )
             ]
 
