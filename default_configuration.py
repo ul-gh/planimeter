@@ -10,7 +10,7 @@ class APPLICATION():
     # Last opened image
     last_image_file = ""
     # Maximum window size for automatic resizing
-    autoscale_max_window_size = (1280, 960)
+    autoscale_max_window_size = (1920, 1080)
     # Minimum plot widget height
     min_plotwin_height = 100
 

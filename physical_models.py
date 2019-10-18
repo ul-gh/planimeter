@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Physical Data Models for Plot Model Assistant
 """
-from plot_model import PlotModel
-from exporters import LTSpice_MOSFET, Redmont_XLSX, DefaultExporter
+from plot_model import PlotModel, PhysModelABC
+from exporters import LTSpice_MOSFET, Redmont_XLSX
 
-class MosfetDynamic():
+class MosfetDynamic(PhysModelABC):
     """Physical model for Spice simulation of MOSFET dynamic properties
     in switching power application
     """
@@ -12,7 +12,7 @@ class MosfetDynamic():
     name = "Mosfet Dynamic"
 
     def __init__(self, pma):
-        self.pma = pma # Plot Model Assistant instance
+        super().__init__(pma)
         # Define three plots and their traces
         plot_capacitances = PlotModel(
                 pma,
@@ -37,22 +37,18 @@ class MosfetDynamic():
         
         ltspice = LTSpice_MOSFET(self)
         xlsx = Redmont_XLSX(self)
+        self.exporters = {"LTSpice": ltspice, "Redmont XLSX": xlsx}
         self.curr_exporter = ltspice
-        self.exporters = [ltspice, xlsx]
-
-    def do_export(self):
-        filename = self.pma.dlg_save_as.exec()
-        self.curr_exporter.export_as(filename)
 
 
-class Default():
+class Default(PhysModelABC):
     """Default model of two plots each having three traces
     """
     # Display name, used by the GUI
     name = "Default"
 
     def __init__(self, pma):
-        self.pma = pma # Plot Model Assistant instance
+        super().__init__(pma)
         plot_0 = PlotModel(
                 pma,
                 name="Plot 0",
@@ -66,9 +62,5 @@ class Default():
                 colors=("r", "g", "b"),
                 )
         self.plots = [plot_0, plot_1]
-        self.curr_exporter = DefaultExporter(self)
-        self.exporters = [self.curr_exporter]
-
-    def do_export(self):
-        filename = self.pma.dlg_save_as.exec()
-        self.curr_exporter.export_as(filename)
+        # self.curr_exporter = DefaultExporter(self)
+        # self.exporters = {"Default": self.curr_exporter}

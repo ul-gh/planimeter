@@ -51,13 +51,6 @@ class PlotModelAssistant(QTabWidget):
         self.mainw = mainw
         self.conf = conf
         self.set_wdir(conf.app_conf.wdir)
-
-        self.plots = []
-        self.digitizers = []
-        self.curr_plot_index = -1 # Becomes zero at first append/update
-        self.curr_plot = None
-        self.curr_digitizer = None
-
         # List of physical model specialised class objects,
         # all imported from physical_models.py
         self.phys_models = [
@@ -66,7 +59,17 @@ class PlotModelAssistant(QTabWidget):
                 if member[1].__module__ == physical_models.__name__
                 ]
         self.phys_model_names = [model.name for model in self.phys_models]
-        self.phys_model = None
+        # Plots defined in above model classes are added to this list
+        # by self.set_model() method.
+        self.plots = []
+        # Each plot has a corresponding digitizer instance
+        self.digitizers = []
+        # Current state
+        self.curr_model = None
+        self.curr_plot_index = -1 # Becomes zero at first append/update
+        self.curr_plot = None
+        self.curr_digitizer = None
+
         new_model = physical_models.MosfetDynamic(self)
         ########## Add Widgets
         self.messagebox = CustomisedMessageBox(self)
@@ -74,15 +77,10 @@ class PlotModelAssistant(QTabWidget):
         #self.tabs = QTabWidget(self)
         # Select, configure and export physical data models
         self.tab_physical_model = PhysicalModelTab(self, self.phys_models)
-        # Launch Jupyter Console button
-        #self.btn_console = QPushButton(
-        #        "Launch Jupyter Console\nIn Application Namespace")
         # The first tab is supposed to be always present for setting the
         # multi-plot-model, while the other right-side tabs 
         #self.tabs.addTab(self.tab_physical_model, "Physical Model")
-        #self.tabs.addTab(self.btn_console, "IPython Console")
         self.addTab(self.tab_physical_model, "Physical Model")
-        #self.addTab(self.btn_console, "IPython Console")
         # This adds more tabs, one for each plot
         self.set_model(new_model)
 
@@ -94,18 +92,17 @@ class PlotModelAssistant(QTabWidget):
         self.currentChanged.connect(self._on_tab_change)
         ########## Connect foreign signals
 
-
     def set_model(self, phys_model):
-        if phys_model is self.phys_model:
+        if phys_model is self.curr_model:
             return
         #if phys_model.hasData() and not self.confirm_delete():
         #    return
         # Remove all plots from current (old) model
-        if self.phys_model is not None:
-            for index in range(len(self.phys_model.plots)):
+        if self.curr_model is not None:
+            for index in range(len(self.curr_model.plots)):
                 self.remove_plot(index)
         # Set new model
-        self.phys_model = phys_model
+        self.curr_model = phys_model
         for plot in phys_model.plots:
             self.add_plot(plot)
 
@@ -122,6 +119,13 @@ class PlotModelAssistant(QTabWidget):
         # Set new index, set shortcut properties and activate everything
         self.curr_digitizer.toolbar.setVisible(True)
         self.curr_plot_index = new_index
+        # Add current state to interactive (console) namespace
+        self.mainw.interactive_env.update({
+                "model": self.curr_model,
+                "plot": self.curr_plot,
+                "digitizer": self.curr_digitizer,
+                "traces": self.curr_plot.traces,
+                })
 
     @pyqtSlot(int)
     def remove_plot(self, plot_index):

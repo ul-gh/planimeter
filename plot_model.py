@@ -18,10 +18,41 @@ import scipy.misc as misc
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
+from exporters import DefaultExporter
+
 import matplotlib.pyplot as plt
 import upylib.u_plot_format as u_format
 
 from upylib.pyqt_debug import logExceptionSlot
+
+class PhysModelABC():
+    """Abstract base class for physical models containing one
+    or multiple plots together with exporting functions etc.
+    """
+    name= "Multi-Plot Data Model"
+
+    def __init__(self, pma):
+        # Plot Model Assistant instance
+        self.pma = pma
+        # List of all plots
+        self.plots = []
+        # Default exporter agent instance
+        self.curr_exporter = DefaultExporter(self)
+        # Index mapping of the available exporters
+        self.exporters = {"Default": self.curr_exporter}
+
+    def do_export(self, exporter=None):
+        """Export the whole model using the specified or
+        previously set exporter
+        """
+        if exporter is None:
+            exporter = self.curr_exporter
+        filename = self.pma.dlg_save_as.exec()
+        exporter.export_as(filename)
+
+    def __repr__(self):
+        return f"<{self.name}>"
+
 
 class PlotModel(QObject):
     """PlotModel
@@ -759,6 +790,9 @@ class PlotModel(QObject):
             return None
         return np.array((num_xs, num_ys)) / denominator
 
+    def __repr__(self):
+        return f"<{self.name}>"
+
 
 class Trace(QObject):
     """Data representing a single plot trace, including individual
@@ -1052,8 +1086,8 @@ class Trace(QObject):
                 self.pts = self.pts_linscale.copy()
                 self.f_interp = self.f_interp_lin
 
-    def __str__(self):
-        return self.name
+    def __repr__(self):
+        return f"<{self.name}>"
 
 
 class Axis(QObject):
@@ -1236,7 +1270,7 @@ class Axis(QObject):
         # Updates model outputs etc. when X and Y axis setup is complete
         self.model.ax_conf_changed.emit()
     
-    def __str__(self):
-        return self.name
+    def __repr__(self):
+        return f"<{self.name}>"
 
 

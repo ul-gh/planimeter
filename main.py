@@ -62,11 +62,14 @@ class RuntimeConfig():
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, script_global_namespace={}):
         super().__init__()
         # Load configuration either from defaults or from config file
         self.conf = conf = RuntimeConfig()
         conf.load_from_configfile()
+
+        # Used to push PlotModelAssistant state to console namespace
+        self.interactive_env = script_global_namespace
 
         #self.setMinimumSize(QSize(*conf.app_conf.window_size))
         self.setWindowTitle("-- Plot Model Assistant -- Main Window --")
@@ -75,20 +78,20 @@ class MainWindow(QMainWindow):
         self.ipyconsole = EmbeddedIPythonKernel(self)
         self._add_toolbar()
         ########## Central Widget
-        self.cw = PlotModelAssistant(self, conf)
-        self.setCentralWidget(self.cw)
+        self.pma = PlotModelAssistant(self, conf)
+        self.setCentralWidget(self.pma)
 
         self.set_last_image_file(conf.app_conf.last_image_file)
         # Reopen last file if requested and if it exists
         if self.last_image_file != "":
-            self.cw.curr_digitizer.mpl_widget.load_image_file(self.last_image_file)
+            self.pma.curr_digitizer.mpl_widget.load_image_file(self.last_image_file)
         # Add to the central widget size for mainw autoscaling
         self.autoscale_window()
 
 
     @pyqtSlot()
     def autoscale_window(self):
-        sh = self.cw.sizeHint()
+        sh = self.pma.sizeHint()
         logger.debug(f"Autoscale Window Called. SizeHint is: {sh}")
         width, height = sh.width(), sh.height()
         # Don't know where these pixels come from
@@ -116,17 +119,17 @@ class MainWindow(QMainWindow):
         This saves current configuration and axes properties if flag is set.
         """
         # Store axis configuration if requested
-        if self.cw.curr_plot.wants_persistent_storage:
+        if self.pma.curr_plot.wants_persistent_storage:
             logger.info("Storing axis configuration to disk..")
             self.conf.plot_conf.wants_persistent_storage = True
             # Getting plot configuration from Digitizer widget:
-            self.conf.x_ax_state = self.cw.curr_plot.x_ax.restorable_state()
-            self.conf.y_ax_state = self.cw.curr_plot.y_ax.restorable_state()
+            self.conf.x_ax_state = self.pma.curr_plot.x_ax.restorable_state()
+            self.conf.y_ax_state = self.pma.curr_plot.y_ax.restorable_state()
         else:
             self.conf.x_ax_state = None
             self.conf.y_ax_state = None
         # Save working directory
-        self.conf.app_conf.wdir = self.cw.wdir
+        self.conf.app_conf.wdir = self.pma.wdir
         self.conf.app_conf.last_image_file = self.last_image_file
         # Store all configuration
         self.conf.store_to_configfile()
@@ -158,21 +161,14 @@ if __name__ == "__main__":
         logger.debug("Creating new QApplication")
         app = QApplication(sys.argv)
 
-    mainw = MainWindow()
+    # Main Window instance is injected the global namespace dictionary
+    # which is updated when PlotModelAssistant.activate_plot_index() is called
+    mainw = MainWindow(globals())
     mainw.show()
     mainw.activateWindow()
 
-    # Set up some shortcuts for command line interactive use.
-    digitizer = mainw.cw.digitizers[0]
-    mplw = digitizer.mpl_widget
-    ax = mplw.mpl_ax
-    fig = mplw.fig
-    cv = mplw.canvas_qt
-    redraw = mplw.canvas_qt.draw_idle
-    print_model_view_items = mplw.print_model_view_items
-
-    plots = mainw.cw.phys_model.plots
-    tr1, tr2, tr3 = plots[0].traces[0:3]
+    # Shortcut for interactive use
+    pma = mainw.pma
 
     # When running from ipython shell, use its Qt GUI event loop
     # integration. Otherwise, start embedded IPython kernel.
@@ -184,9 +180,13 @@ if __name__ == "__main__":
             # Running in IPython interactive shell. Configure Qt integration
             ipy_inst.run_line_magic("gui", "qt5")
             ipy_inst.run_line_magic("matplotlib", "qt5")
+            logger.info('Running in IPython console.\n'
+                        'Start with "%run -i main" '
+                        'to make app namespace available in interpreter!')
         else:
             # Launch embedded IPython Kernel and start GUI event loop
-            mainw.ipyconsole.start_ipython_kernel(locals(), gui="qt5")
+            mainw.ipyconsole.start_ipython_kernel(
+                    mainw.interactive_env, gui="qt5")
     except ImportError:
         # Run normal Qt app without any IPython integration
         sys.exit(app.exec_())

@@ -203,6 +203,9 @@ class Digitizer(QWidget):
         layout.addWidget(self.splitter)
         logger.debug(f"DE_DEDE_DEBUG After Layout: {self.splitter.widget(0)}")
 
+    def __repr__(self):
+        return f"<Digitizer for model: {self.plot_model.name}>"
+
 
 class MplWidget(QWidget):
     """This is the core graphic widget based on a matplotlib Qt backend.
@@ -1389,7 +1392,7 @@ class TracesTable(QTableWidget):
         row += 1
         self.itm_add_new = QTableWidgetItem("Add New!")
         itm_remarks = QTableWidgetItem(
-                "Enter name to add trace.  Delete any name to remove.")
+                "<--Enter name to add trace.  Delete any name to remove.")
         itm_remarks.setFlags(itm_remarks.flags() & ~Qt.ItemIsEnabled)
         self.setItem(row, 0, self.itm_add_new)
         self.resizeColumnsToContents()
