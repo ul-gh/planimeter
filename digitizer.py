@@ -611,6 +611,7 @@ class MplWidget(QWidget):
         logger.info("Switching back to default mode")
         self._blit_buffer_stale = True
         self._picked_obj = None
+        self._do_blit_redraw()
 
     # Adds point to model, causes a model-view update and sets picked obj
     def _add_and_pick_point(self, submodel, px_xy):
@@ -989,6 +990,7 @@ class ExportSettingsTab(QWidget):
     def __init__(self, mpl_widget, plot_model):
         super().__init__(mpl_widget)
         self.plot_model = plot_model
+        self.exporter = plot_model.exporter
         ######### Setup widgets
         ##### Upper grid layout: inputs + labels
         self.btn_preview = StyledButton("Preview Points")
@@ -1029,7 +1031,7 @@ class ExportSettingsTab(QWidget):
         self.edit_definition_range_start.setStyleSheet(
                 "background-color: LightGrey")
         self.edit_x_start_export = SciLineEdit(
-                self.plot_model.x_start_export,
+                self.exporter.x_start_export,
                 "X Axis Start Value",
                 self.plot_model.num_fmt
                 )
@@ -1040,7 +1042,7 @@ class ExportSettingsTab(QWidget):
         self.edit_definition_range_end.setStyleSheet(
                 "background-color: LightGrey")
         self.edit_x_end_export = SciLineEdit(
-                self.plot_model.x_end_export,
+                self.exporter.x_end_export,
                 "X Axis End Value",
                 self.plot_model.num_fmt
                 )

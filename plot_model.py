@@ -22,7 +22,7 @@ from upylib.pyqt_debug import logExceptionSlot
 
 class PhysModelABC():
     """Abstract base class for physical models containing one
-    or multiple plots together with exporting functions etc.
+    or multiple plots in combination with exporting functions etc.
     """
     name= "Multi-Plot Data Model"
 
@@ -313,7 +313,7 @@ class PlotModel(QObject):
         self.traces = [
             Trace(self, conf.trace_conf, trace_no, name, color)
             for trace_no, name, color
-            in zip( # trace_no: enumeration from zero in order of traces_names
+            in zip( # trace_no: enumeration from zero in order of trace_names
                     range(len(trace_names)),
                     trace_names,
                     colors,
@@ -327,6 +327,9 @@ class PlotModel(QObject):
         self.atol = conf.plot_conf.atol
         # Store axes configuration persistently on disk when set
         self.wants_persistent_storage = conf.plot_conf.wants_persistent_storage
+
+        ########## Exporter instance generates export grid and stores settings
+        self.exporter = Exporter(self, conf)
 
         ########## Restore data model configuration and state from stored data
         if conf.x_ax_state is not None:
