@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 """Physical Data Models for Plot Model Assistant
 """
+import numpy as np
+import scipy.integrate as integrate
+
+import matplotlib.pyplot as plt
+import upylib.u_plot_format as u_format
+
 from plot_model import PlotModel, PhysModelABC
-from exporters import LTSpice_MOSFET, Redmont_XLSX
 
 class MosfetDynamic(PhysModelABC):
     """Physical model for Spice simulation of MOSFET dynamic properties
@@ -34,11 +39,63 @@ class MosfetDynamic(PhysModelABC):
                 )
         # Put above into list "plots" of this instance
         self.plots = [plot_capacitances, plot_conductances, plot_diode]
+
+        self.exportfuncs.update({"LTSpice": self.export_ltspice_mosfet})
+        self.curr_exportfunc = self.export_ltspice_mosfet
+
+
+    def export_ltspice_mosfet(self, filename):
+        pass
+
+    def wip_export(self, tr):
+        # FIXME: Temporary solution
+        grid = np.linspace(tr.pts[0,0], tr.pts[-1,0], 100)
+        y = tr.f_interp(grid)*1e-12
+        y_int = integrate.cumtrapz(y, grid, initial=0.0)
+        x_times_y = grid * y
+        x_times_y_int = integrate.cumtrapz(x_times_y, grid, initial=0.0)
+        tr.pts_export = np.stack((grid, y), axis=1)
+        tr.pts_export_int = np.stack((grid, y_int), axis=1)
+        tr.pts_export_xy_int = np.stack((grid, x_times_y_int), axis=1)
         
-        ltspice = LTSpice_MOSFET(self)
-        xlsx = Redmont_XLSX(self)
-        self.exporters = {"LTSpice": ltspice, "Redmont XLSX": xlsx}
-        self.curr_exporter = ltspice
+    def wip_plot_cap_charge_e_stored(self,tr):
+        self.fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        self.fig.set_size_inches(18, 6.0)
+        # Plot ax1
+        u_format.plot_lin_lin_engineering(
+                ax1,
+                *tr.pts_export.T,
+                title=r"Differential Capacitance C(u)",
+                xlabel=r"U /Volts",
+                ylabel=r"C(u) /Farads",
+                #xlim=(1, 450),
+                #ylim=(0, 0.6),
+                )
+        # Plot ax2
+        u_format.plot_lin_lin_engineering(
+                ax2,
+                *tr.pts_export_int.T,
+                title=r"Charge Q(u)",
+                xlabel=r"U /Volts",
+                ylabel=r"Q(u) /Coulombs",
+                #xlim=(1, 450),
+                #ylim=(0, 0.6),
+                )
+        ax2_text = r"$Q(u) = \int C(u) \: du$"
+        ax2.text(0.05, 0.9, ax2_text, fontsize=15, transform=ax2.transAxes)
+        # Plot ax3
+        u_format.plot_lin_lin_engineering(
+                ax3,
+                *tr.pts_export_xy_int.T,
+                title=r"C Stored Energy E(u)",
+                xlabel=r"U /Volts",
+                ylabel=r"E(u) /Joules",
+                #xlim=(1, 450),
+                #ylim=(0, 0.6),
+                )
+        ax3_text = r"$E(u) = \int u \cdot C(u) \: du$"
+        ax3.text(0.05, 0.9, ax3_text, fontsize=15, transform=ax3.transAxes)
+        self.fig.tight_layout()
 
 
 class Default(PhysModelABC):
