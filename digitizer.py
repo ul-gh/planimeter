@@ -11,8 +11,8 @@ import io
 import os
 import tempfile
 import numpy as np
-from collections import OrderedDict
 from numpy import NaN, isnan
+from collections import OrderedDict
 
 from PyQt5.QtCore import Qt, QDir, QSize, QMimeData, QTimer, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QIcon, QIntValidator
@@ -975,12 +975,6 @@ class TraceConfTab(QWidget):
     def update_plot_model_view(self):
         pass
 
-    @logExceptionSlot(bool)
-    def wip_do_plot(self, state):
-        trace = self.plot_model.traces[self.mpl_widget.curr_trace_no]
-        self.plot_model.wip_export(trace)
-        self.plot_model.wip_plot_cap_charge_e_stored(trace)
-
     def _set_layout(self):
         layout = QVBoxLayout(self)
         layout.addWidget(self.table_tr_conf)
@@ -992,6 +986,8 @@ class ExportSettingsTab(QWidget):
         self.plot_model = plot_model
         self.exporter = plot_model.exporter
         ######### Setup widgets
+        self.setStyleSheet("QLineEdit {background-color: White}\n"
+                           "QLineEdit:read-only {background-color: LightGrey}")
         ##### Upper grid layout: inputs + labels
         self.btn_preview = StyledButton("Preview Points")
         self.lbl_extrapolation = QLabel("Extrapolation",
@@ -1022,29 +1018,32 @@ class ExportSettingsTab(QWidget):
                 0.1, "Step Size", self.plot_model.num_fmt)
 
         ##### Lower grid layout: Definition range display and export range edit
-        self.lbl_definition_range = QLabel("Definition Range Start/End:")
-        self.lbl_export_range = QLabel("Export Range Start/End:")
-
+        self.lbl_x_start = QLabel("Start", alignment=Qt.AlignHCenter|Qt.AlignBottom)
+        self.lbl_x_end = QLabel("End", alignment=Qt.AlignHCenter|Qt.AlignBottom)
+        self.lbl_definition_range = QLabel("Common Definition Range:")
+        self.cb_autorange = QCheckBox("Export Range Automatic: ",
+                                      layoutDirection=Qt.RightToLeft)
         self.edit_definition_range_start = SciLineEdit(
-                0.0, "Lower Limit", self.plot_model.num_fmt)
-        self.edit_definition_range_start.setReadOnly(True)
-        self.edit_definition_range_start.setStyleSheet(
-                "background-color: LightGrey")
-        self.edit_x_start_export = SciLineEdit(
-                self.exporter.x_start_export,
-                "X Axis Start Value",
-                self.plot_model.num_fmt
+                self.exporter.x_common_range_start,
+                "Lower Limit",
+                self.plot_model.num_fmt,
+                readOnly=True,
                 )
-
         self.edit_definition_range_end = SciLineEdit(
-                10.0, "Upper Limmit", self.plot_model.num_fmt)
-        self.edit_definition_range_end.setReadOnly(True)
-        self.edit_definition_range_end.setStyleSheet(
-                "background-color: LightGrey")
-        self.edit_x_end_export = SciLineEdit(
-                self.exporter.x_end_export,
+                self.exporter.x_common_range_end,
+                "Upper Limit", 
+                self.plot_model.num_fmt,
+                readOnly=True,
+                )
+        self.edit_x_export_start = SciLineEdit(
+                self.exporter.x_export_start,
+                "X Axis Start Value",
+                self.plot_model.num_fmt,
+                )
+        self.edit_x_export_end = SciLineEdit(
+                self.exporter.x_export_start,
                 "X Axis End Value",
-                self.plot_model.num_fmt
+                self.plot_model.num_fmt,
                 )
         # Setup layout
         self._set_layout()
@@ -1054,7 +1053,8 @@ class ExportSettingsTab(QWidget):
         self.update_mpl_widget_view(mpl_widget.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
-        # self.btn_export.toggled.connect(self.wip_do_export)
+        self.btn_preview.toggled.connect(self.do_preview_plot)
+        self.cb_autorange.toggled.connect(self._set_autorange)
 
         ########## Connect foreign signals
         plot_model.export_settings_changed.connect(self.update_plot_model_view)
@@ -1065,11 +1065,28 @@ class ExportSettingsTab(QWidget):
     def update_plot_model_view(self):
         #self.btn_lin_export.setChecked(not self.plot_model.x_log_scale_export)
         #self.btn_log_export.setChecked(self.plot_model.x_log_scale_export)
+        self.cb_autorange.setChecked(self.exporter.autorange_export)
+        self.edit_definition_range_start.setValue(self.exporter.x_common_range_start)
+        self.edit_definition_range_end.setValue(self.exporter.x_common_range_end)
+        self.edit_x_export_start.setValue(self.exporter.x_export_start)
+        self.edit_x_export_end.setValue(self.exporter.x_export_end)
+        self.edit_x_export_start.setReadOnly(self.exporter.autorange_export)
+        self.edit_x_export_end.setReadOnly(self.exporter.autorange_export)
         pass
 
     @logExceptionSlot(int)
     def update_mpl_widget_view(self, op_mode):
         pass
+
+    @logExceptionSlot(bool)
+    def do_preview_plot(self, state):
+        logger.info("FIXME: Preview not yet implemented!")
+
+    @logExceptionSlot(bool)
+    def _set_autorange(self, state):
+        self.exporter.set_autorange_export(state)
+        self.edit_x_export_start.setReadOnly(state)
+        self.edit_x_export_end.setReadOnly(state)
 
     def _set_layout(self):
         ##### Upper Grid
@@ -1094,13 +1111,16 @@ class ExportSettingsTab(QWidget):
         ##### Lower Grid
         l_lower = QGridLayout()
         # Row 0
-        l_lower.addWidget(self.lbl_definition_range, 0, 0)
-        l_lower.addWidget(self.edit_definition_range_start, 0, 1)
-        l_lower.addWidget(self.edit_definition_range_end, 0, 2)
-        # Rows 1
-        l_lower.addWidget(self.lbl_export_range, 1, 0)
-        l_lower.addWidget(self.edit_x_start_export, 1, 1)
-        l_lower.addWidget(self.edit_x_end_export, 1, 2)
+        l_lower.addWidget(self.lbl_x_start, 0, 1)
+        l_lower.addWidget(self.lbl_x_end, 0, 2)
+        # Row 1
+        l_lower.addWidget(self.lbl_definition_range, 1, 0)
+        l_lower.addWidget(self.edit_definition_range_start, 1, 1)
+        l_lower.addWidget(self.edit_definition_range_end, 1, 2)
+        # Rows 2
+        l_lower.addWidget(self.cb_autorange, 2, 0)
+        l_lower.addWidget(self.edit_x_export_start, 2, 1)
+        l_lower.addWidget(self.edit_x_export_end, 2, 2)
         ##### Complete Layout
         l_outer = QVBoxLayout(self)
         l_outer.addLayout(l_upper)

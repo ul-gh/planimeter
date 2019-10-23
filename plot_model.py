@@ -60,14 +60,18 @@ class Exporter():
     """
     def __init__(self, plot_model, conf):
         self.plot_model = plot_model
+        self.traces = plot_model.traces
+        self.x_ax = plot_model.x_ax
+        self.y_ax = plot_model.y_ax
         ##### Trace export options
-        # X-axis range used for interpolating traces export data.
-        # In order to avoid strange results due to uncalled-for extrapolation
-        # when no extrapolation function is defined, this is later set to the 
-        # intersection of definition ranges of all traces marked for export.
         self.autorange_export = True
-        self.x_start_export = NaN
-        self.x_end_export = NaN
+        self.extrapolation_types = ["None", "Constant", "Trend"]
+        self.extrapolation_type = "None"
+        # X-axis range used for interpolating traces export data.
+        self.x_common_range_start = NaN
+        self.x_common_range_end = NaN
+        self.x_export_start = NaN
+        self.x_export_end = NaN
         # Fixed step size for export range is optional
         self.fixed_n_pts_export = conf.plot_conf.fixed_n_pts_export
         self.x_step_export = conf.plot_conf.x_step_export
@@ -117,14 +121,14 @@ class Exporter():
         if self.x_log_scale_export:
             # Grid is specified by number of points per decade; thus using log10
             x_grid_export = np.geomspace(
-                    self.x_start_export, self.x_end_export, self.n_pts_export)
+                    self.x_export_start, self.x_export_end, self.n_pts_export)
         else:
             if self.fixed_n_pts_export:
                 x_grid_export = np.linspace(
-                    self.x_start_export, self.x_end_export, self.n_pts_export)
+                    self.x_export_start, self.x_export_end, self.n_pts_export)
             else:
                 x_grid_export = np.arange(
-                    self.x_start_export, self.x_end_export, self.x_step_export)
+                    self.x_export_start, self.x_export_end, self.x_step_export)
         # Anyways:
         self.x_grid_export = x_grid_export
 
@@ -143,27 +147,27 @@ class Exporter():
 
 
     @logExceptionSlot(float)
-    def set_x_start_export(self, x_start: float):
-        if isclose(self.x_end_export - x_start, 0.0, atol=self.atol):
+    def set_x_export_start(self, x_start: float):
+        if isclose(self.x_export_end - x_start, 0.0, atol=self.atol):
             self.plot_model.value_error.emit("X axis section must not be zero length")
             return
         self.autorange_export = False
-        self.x_start_export = x_start
-        self._check_or_update_export_range()
+        self.x_export_start = x_start
+        self.check_or_update_export_range()
 
     @logExceptionSlot(float)
-    def set_x_end_export(self, x_end: float):
-        if isclose(x_end - self.x_start_export, 0.0, atol=self.atol):
+    def set_x_export_end(self, x_end: float):
+        if isclose(x_end - self.x_export_start, 0.0, atol=self.atol):
             self.plot_model.value_error.emit("X axis section must not be zero length")
             return
         self.autorange_export = False
-        self.x_end_export = x_end
-        self._check_or_update_export_range()
+        self.x_export_end = x_end
+        self.check_or_update_export_range()
 
     @logExceptionSlot(bool)
     def set_autorange_export(self, state=True):
         self.autorange_export = state
-        self._check_or_update_export_range()
+        self.check_or_update_export_range()
 
     @logExceptionSlot(int)
     def set_n_pts_export(self, n_pts: int = None):
@@ -178,7 +182,7 @@ class Exporter():
             self.plot_model.export_range_warning.emit(
                 "Value changed to one point minimum")
         # Calculation only possible when export range is defined
-        if not isnan((self.x_start_export, self.x_end_export)).any():
+        if not isnan((self.x_export_start, self.x_export_end)).any():
             if self.x_log_scale_export:
                 self._update_n_pts_dec_export()
             else:
@@ -192,14 +196,14 @@ class Exporter():
         # If called, this assumes linear scale export is desired:
         self.x_log_scale_export = False
         # Validation only possible when export range is defined
-        if isnan((self.x_start_export, self.x_end_export)).any():
+        if isnan((self.x_export_start, self.x_export_end)).any():
             # Without validation
             self.x_step_export = x_step
             return
         # Validation: If the selected X step results in too many points,
         # limit to max. value and emit a warning
         x_step_min = (
-                self.x_end_export - self.x_start_export
+                self.x_export_end - self.x_export_start
                 ) / self.n_pts_export_max
         if x_step < x_step_min:
             self.x_step_export = x_step_min
@@ -209,7 +213,7 @@ class Exporter():
             self.x_step_export = x_step
         # Update total number of points
         self.n_pts_export = 1 + int(
-                (self.x_end_export - self.x_start_export) / x_step
+                (self.x_export_end - self.x_export_start) / x_step
                 )
         self.plot_model.export_settings_changed.emit()
 
@@ -218,14 +222,14 @@ class Exporter():
         # If called, this assumes log scale export is desired:
         self.x_log_scale_export = True
         # Validation only possible when export range is defined
-        if isnan((self.x_start_export, self.x_end_export)).any():
+        if isnan((self.x_export_start, self.x_export_end)).any():
             # Without validation
             self.n_pts_dec_export = n_pts_dec
             return
         # Validation: If the selected X step results in too many points,
         # limit to max. value and emit a warning
-        x_start_lin = np.log10(self.x_start_export)
-        x_end_lin = np.log10(self.x_end_export)
+        x_start_lin = np.log10(self.x_export_start)
+        x_end_lin = np.log10(self.x_export_end)
         n_dec = x_end_lin - x_start_lin
         N_tot = int(n_dec * n_pts_dec)
         if N_tot > self.n_pts_export_max:
@@ -238,6 +242,81 @@ class Exporter():
         # Update total number of points
         self.n_pts_export = N_tot
         self.plot_model.export_settings_changed.emit()
+
+    # Called from plot_model._process_tr_input_data().
+    # Set export range limits on the common X axis such that all traces can
+    # be exported by using interpolation, i.e. no extrapolation takes place.
+    # An exception is made for traces with less than two points selected,
+    # these are not taken into account.
+    def check_or_update_export_range(self):
+        # Calculate interpolation limits
+        tr_start_lin = [tr.pts_linscale[0,0] for tr in self.traces
+                        if tr.export and tr.pts_linscale.shape[0] > 1]
+        tr_end_lin = [tr.pts_linscale[-1,0] for tr in self.traces
+                      if tr.export and tr.pts_linscale.shape[0] > 1]
+        if not tr_start_lin or not tr_end_lin:
+            #logger.debug(f"No export range. No traces marked for export?")
+            return
+        x_start_lin_limit = max(tr_start_lin)
+        x_end_lin_limit = min(tr_end_lin)
+        # Anti-log treatment for X axis. This is not to be confused with log
+        # scale export setting - these are independent.
+        if self.x_ax.log_scale:
+            self.x_common_range_start = self.x_ax.log_base ** x_start_lin_limit
+            self.x_common_range_end = self.x_ax.log_base ** x_end_lin_limit
+        else:
+            self.x_common_range_start = x_start_lin_limit
+            self.x_common_range_end = x_end_lin_limit
+
+        if self.autorange_export:
+            # Set class attribute
+            self.x_export_start = self.x_common_range_start
+            self.x_export_end = self.x_common_range_end
+            # Update dependent attributes
+            if self.fixed_n_pts_export:
+                if self.x_log_scale_export:
+                    self._update_n_pts_dec_export()
+                else:
+                    self._update_x_step_export()
+            else:
+                self._update_n_pts_export()
+        else:
+            # Range check only
+            if (    self.x_export_start < self.x_common_range_start
+                    or self.x_export_end > self.x_common_range_end
+                    ):
+                logger.warn("Export range is extrapolated!")
+                self.plot_model.export_range_warning.emit()
+        # Anyways:
+        self.plot_model.export_settings_changed.emit()
+
+    # Update total number of output points when export range is changed
+    def _update_n_pts_export(self):
+        if self.x_log_scale_export:
+            x_start_lin = np.log10(self.x_export_start)
+            x_end_lin = np.log10(self.x_export_end)
+            n_dec = x_end_lin - x_start_lin
+            N_tot = n_dec * self.n_pts_dec_export
+            self.n_pts_export = min(
+                    self.n_pts_export_max,
+                    N_tot
+                    )
+        else:
+            x_step = self.x_step_export
+            self.n_pts_export = min(
+                    self.n_pts_export_max,
+                    1 + int((self.x_export_end - self.x_export_start) / x_step)
+                    )
+
+    def _update_n_pts_dec_export(self):
+        x_start_lin = np.log10(self.x_export_start)
+        x_end_lin = np.log10(self.x_export_end)
+        n_dec = x_end_lin - x_start_lin
+        self.n_pts_dec_export = self.n_pts_export / n_dec
+
+    def _update_x_step_export(self):
+        self.x_step_export = (self.x_export_end - self.x_export_start
+                       ) / self.n_pts_export
 
 
 class PlotModel(QObject):
@@ -650,87 +729,12 @@ class PlotModel(QObject):
                 tr._interpolate_view_data()
                 tr._handle_log_scale(self.x_ax, self.y_ax)
         # What the name says..
-        self._check_or_update_export_range()
+        self.exporter.check_or_update_export_range()
         # Emit signals informing of updated trace data
         if trace_no is None:
             self.output_data_changed.emit()
         else:
             self.output_data_changed[int].emit(trace_no)
-
-
-    ##### Exporting Related Private Methods
-    # Called from self._process_tr_input_data.
-    # Set export range limits on the common X axis such that all traces can
-    # be exported by using interpolation, i.e. no extrapolation takes place.
-    # An exception is made for traces with less than two points selected,
-    # these are not taken into account.
-    def _check_or_update_export_range(self):
-        # Calculate interpolation limits
-        tr_start_lin = [tr.pts_linscale[0,0] for tr in self.traces
-                        if tr.export and tr.pts_linscale.shape[0] > 1]
-        tr_end_lin = [tr.pts_linscale[-1,0] for tr in self.traces
-                      if tr.export and tr.pts_linscale.shape[0] > 1]
-        if not tr_start_lin or not tr_end_lin:
-            #logger.debug(f"No export range. No traces marked for export?")
-            return
-        x_start_lin_limit = max(tr_start_lin)
-        x_end_lin_limit = min(tr_end_lin)
-        # Anti-log treatment for X axis. This is not to be confused with log
-        # scale export setting - these are independent.
-        if self.x_ax.log_scale:
-            x_start_export_limit = self.x_ax.log_base ** x_start_lin_limit
-            x_end_export_limit = self.x_ax.log_base ** x_end_lin_limit
-        else:
-            x_start_export_limit = x_start_lin_limit
-            x_end_export_limit = x_end_lin_limit
-
-        if self.autorange_export:
-            # Set class attribute
-            self.x_start_export = x_start_export_limit
-            self.x_end_export = x_end_export_limit
-            # Update dependent attributes
-            if self.fixed_n_pts_export:
-                if self.x_log_scale_export:
-                    self._update_n_pts_dec_export()
-                else:
-                    self._update_x_step_export()
-            else:
-                self._update_n_pts_export()
-        else:
-            # Range check only
-            if (    self.x_start_export < x_start_export_limit
-                    or self.x_end_export > x_end_export_limit
-                    ):
-                logger.warn("Export range is extrapolated!")
-                self.export_range_warning.emit()
-
-    # Update total number of output points when export range is changed
-    def _update_n_pts_export(self):
-        if self.x_log_scale_export:
-            x_start_lin = np.log10(self.x_start_export)
-            x_end_lin = np.log10(self.x_end_export)
-            n_dec = x_end_lin - x_start_lin
-            N_tot = n_dec * self.n_pts_dec_export
-            self.n_pts_export = min(
-                    self.n_pts_export_max,
-                    N_tot
-                    )
-        else:
-            x_step = self.x_step_export
-            self.n_pts_export = min(
-                    self.n_pts_export_max,
-                    1 + int((self.x_end_export - self.x_start_export) / x_step)
-                    )
-
-    def _update_n_pts_dec_export(self):
-        x_start_lin = np.log10(self.x_start_export)
-        x_end_lin = np.log10(self.x_end_export)
-        n_dec = x_end_lin - x_start_lin
-        self.n_pts_dec_export = self.n_pts_export / n_dec
-
-    def _update_x_step_export(self):
-        self.x_step_export = (self.x_end_export - self.x_start_export
-                       ) / self.n_pts_export
 
     #Calculates intersection of two lines defined by two points each.
     # line1_pts, line2_pts: Each two points in rows of a 2D array
