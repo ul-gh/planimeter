@@ -12,7 +12,7 @@ import os
 import tempfile
 import numpy as np
 from numpy import NaN, isnan
-from collections import OrderedDict
+from collections import namedtuple
 
 from PyQt5.QtCore import Qt, QDir, QSize, QMimeData, QTimer, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QIcon, QIntValidator
@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
         QGroupBox, QLabel, QRadioButton, QCheckBox, QComboBox, QFileDialog,
         QTableWidget, QTableWidgetItem, QStyle, QAction, QTabWidget, QSplitter,
-        )
+         QPushButton, QLineEdit)
 from custom_standard_widgets import (
         SciLineEdit, SmallSciLineEdit, StyledButton, NumberedButton,
         NumberedCenteredCheckbox, CustomisedMessageBox,
@@ -31,7 +31,7 @@ import matplotlib.image
 #from matplotlib.patches import Polygon
 from matplotlib.backends.backend_qt5agg import FigureCanvas, NavigationToolbar2QT
 
-from plot_model import Trace, Axis
+from plot_model import Trace, Axis, DescriptiveIDs
 from upylib.pyqt_debug import logExceptionSlot
 
 
@@ -986,40 +986,39 @@ class ExportSettingsTab(QWidget):
         self.plot_model = plot_model
         self.exporter = plot_model.exporter
         ######### Setup widgets
-        self.setStyleSheet("QLineEdit {background-color: White}\n"
-                           "QLineEdit:read-only {background-color: LightGrey}")
+        self.setStyleSheet(
+                "QLineEdit {background-color: White}\n"
+                "QLineEdit:read-only {background-color: LightGrey}\n"
+                "QLabel {qproperty-alignment: AlignHCenter}")
         ##### Upper grid layout: inputs + labels
-        self.btn_preview = StyledButton("Preview Points")
-        self.lbl_extrapolation = QLabel("Extrapolation",
-                                        alignment=Qt.AlignCenter)
+        self.lbl_extrapolation = QLabel("Extrapolation")
         self.combo_extrapolation = QComboBox()
-        self.combo_extrapolation.addItems(["Trend", "Constant", "None"])
+        self.combo_extrapolation.addItems(self.exporter.extrapolation_types)
 
-        self.lbl_traces_select = QLabel("Export Traces",
-                                        alignment=Qt.AlignCenter)
+        self.lbl_traces_select = QLabel("Export Traces")
         self.combo_traces_select = QComboBox()
         self.combo_traces_select.addItems(
-                ["All Selected", "Trace 1", "Trace 2"])
-        self.lbl_grid_type = QLabel("Grid Type", alignment=Qt.AlignCenter)
+                ["All Selected"] + self.plot_model.trace_names)
+        self.lbl_grid_type = QLabel("Grid Type")
         self.combo_grid_type = QComboBox()
-        self.combo_grid_type.addItems(
-                ["Adaptive Individual", "Lin Fixed N", "Lin Fixed Step",
-                 "Log Fixed N/dec"]
-                )
+        self.combo_grid_type.addItems(self.exporter.grid_types.long)
 
-        self.lbl_n_pts = QLabel("Total N Points", alignment=Qt.AlignCenter)
-        self.combo_n_pts = QComboBox()
-        self.combo_n_pts.setEditable(True)
-        self.combo_n_pts.setValidator(QIntValidator())
-        self.combo_n_pts.addItems(["10", "15", "20", "35", "50", "100"])
-        self.lbl_grid_parameter = QLabel("Step Size / N/dec / Q",
-                                         alignment=Qt.AlignCenter)
+        self.lbl_request_n_pts = QLabel("Target N Points")
+        self.combo_request_n_pts = QComboBox(editable=True)
+        self.combo_request_n_pts.setValidator(QIntValidator())
+        self.combo_request_n_pts.addItems(["10", "15", "20", "35", "50", "100"])
+        self.lbl_actual_n_pts = QLabel("Generated N pts")
+        self.edit_actual_n_pts = QLineEdit(readOnly=True)
+        self.lbl_grid_parameter = QLabel("Step Size / N/dec / Q")
         self.edit_grid_parameter = SciLineEdit(
                 0.1, "Step Size", self.plot_model.num_fmt)
+        self.btn_generate_grid = QPushButton("Generate Grid")
+        self.btn_calculate_points = QPushButton("Calculate Points")
+        self.btn_preview = QPushButton("Preview Plot")
 
         ##### Lower grid layout: Definition range display and export range edit
-        self.lbl_x_start = QLabel("Start", alignment=Qt.AlignHCenter|Qt.AlignBottom)
-        self.lbl_x_end = QLabel("End", alignment=Qt.AlignHCenter|Qt.AlignBottom)
+        self.lbl_x_start = QLabel("Start")
+        self.lbl_x_end = QLabel("End")
         self.lbl_definition_range = QLabel("Common Definition Range:")
         self.cb_autorange = QCheckBox("Export Range Automatic: ",
                                       layoutDirection=Qt.RightToLeft)
@@ -1053,8 +1052,21 @@ class ExportSettingsTab(QWidget):
         self.update_mpl_widget_view(mpl_widget.MODE_DEFAULT)
 
         ########## Connect own and sub-widget signals
-        self.btn_preview.toggled.connect(self.do_preview_plot)
-        self.cb_autorange.toggled.connect(self._set_autorange)
+        self.combo_traces_select.currentIndexChanged[int].connect(
+                self.set_traces)
+        self.combo_request_n_pts.currentTextChanged.connect(
+                lambda s: self.exporter.set_request_n_pts(int(s))
+                )
+        self.combo_grid_type.currentIndexChanged.connect(
+                self._set_grid_type)
+        self.edit_grid_parameter.valid_number_entered.connect(
+                self._set_grid_parameter)
+        self.cb_autorange.toggled.connect(
+                self._set_autorange)
+        self.combo_extrapolation.currentIndexChanged.connect(
+                self.exporter.set_extrapolation_type)
+        self.btn_preview.clicked.connect(
+                self.do_preview_plot)
 
         ########## Connect foreign signals
         plot_model.export_settings_changed.connect(self.update_plot_model_view)
@@ -1072,8 +1084,15 @@ class ExportSettingsTab(QWidget):
         self.edit_x_export_end.setValue(self.exporter.x_export_end)
         self.edit_x_export_start.setReadOnly(self.exporter.autorange_export)
         self.edit_x_export_end.setReadOnly(self.exporter.autorange_export)
-        pass
 
+    @logExceptionSlot(int)
+    def set_traces(self, index):
+        if index == 0:
+            # Selects all traces marked for export
+            self.exporter.set_traces()
+        else:
+            self.exporter.set_traces(index)
+            
     @logExceptionSlot(int)
     def update_mpl_widget_view(self, op_mode):
         pass
@@ -1081,6 +1100,34 @@ class ExportSettingsTab(QWidget):
     @logExceptionSlot(bool)
     def do_preview_plot(self, state):
         logger.info("FIXME: Preview not yet implemented!")
+
+    @logExceptionSlot(float)
+    def _set_grid_parameter(self, value: float):
+        if self.exporter.x_log_scale_export:
+            self.exporter.set_n_pts_dec(value)
+        else:
+            self.exporter.set_x_step(value)
+    
+    @logExceptionSlot(int)
+    def _set_grid_type(self, index):
+        type_str = self.exporter.grid_types.short[index]
+        if type_str == "fixed_n":
+            self.lbl_grid_parameter.setText("Step Size")
+            self.edit_grid_parameter.setReadOnly(True)
+            self.combo_request_n_pts.setEditable(True)
+        elif type_str == "fixed_step":
+            self.lbl_grid_parameter.setText("Step Size")
+            self.edit_grid_parameter.setReadOnly(False)
+            self.combo_request_n_pts.setEditable(False)
+        elif type_str == "log_n_dec":
+            self.lbl_grid_parameter.setText("Points/Decade")
+            self.edit_grid_parameter.setReadOnly(False)
+            self.combo_request_n_pts.setEditable(False)
+        elif type_str == "adaptive":
+            self.lbl_grid_parameter.setText("Q Factor")
+            self.edit_grid_parameter.setReadOnly(False)
+            self.combo_request_n_pts.setEditable(False)
+        self.exporter.set_grid_type(type_str)
 
     @logExceptionSlot(bool)
     def _set_autorange(self, state):
@@ -1091,39 +1138,47 @@ class ExportSettingsTab(QWidget):
     def _set_layout(self):
         ##### Upper Grid
         l_upper = QGridLayout()
-        l_upper.setColumnStretch(1, 3)
+        l_upper.setColumnStretch(0, 3)
+        l_upper.setColumnStretch(1, 2)
         l_upper.setColumnStretch(2, 2)
         # Row 0
-        l_upper.addWidget(self.lbl_traces_select, 0, 1)
-        l_upper.addWidget(self.lbl_n_pts, 0, 2)
+        l_upper.addWidget(self.lbl_traces_select, 0, 0)
+        l_upper.addWidget(self.lbl_request_n_pts, 0, 1)
+        l_upper.addWidget(self.lbl_actual_n_pts, 0, 2)
         # Row 1
-        l_upper.addWidget(self.btn_preview, 1, 0)
-        l_upper.addWidget(self.combo_traces_select, 1, 1)
-        l_upper.addWidget(self.combo_n_pts, 1, 2)
+        l_upper.addWidget(self.combo_traces_select, 1, 0)
+        l_upper.addWidget(self.combo_request_n_pts, 1, 1)
+        l_upper.addWidget(self.edit_actual_n_pts, 1, 2)
         # Row 2
-        l_upper.addWidget(self.lbl_extrapolation, 2, 0)
-        l_upper.addWidget(self.lbl_grid_type, 2, 1)
-        l_upper.addWidget(self.lbl_grid_parameter, 2, 2)
+        l_upper.addWidget(self.lbl_grid_type, 2, 0)
+        l_upper.addWidget(self.lbl_grid_parameter, 2, 1)
+        l_upper.addWidget(self.lbl_extrapolation, 2, 2)
         # Row 3
-        l_upper.addWidget(self.combo_extrapolation, 3, 0)
-        l_upper.addWidget(self.combo_grid_type, 3, 1)
-        l_upper.addWidget(self.edit_grid_parameter, 3, 2)
+        l_upper.addWidget(self.combo_grid_type, 3, 0)
+        l_upper.addWidget(self.edit_grid_parameter, 3, 1)
+        l_upper.addWidget(self.combo_extrapolation, 3, 2)
+        ##### Middle Grid
+        l_middle = QGridLayout()
+        # Row 0
+        l_middle.addWidget(self.lbl_x_start, 0, 1)
+        l_middle.addWidget(self.lbl_x_end, 0, 2)
+        # Row 1
+        l_middle.addWidget(self.lbl_definition_range, 1, 0)
+        l_middle.addWidget(self.edit_definition_range_start, 1, 1)
+        l_middle.addWidget(self.edit_definition_range_end, 1, 2)
+        # Rows 2
+        l_middle.addWidget(self.cb_autorange, 2, 0)
+        l_middle.addWidget(self.edit_x_export_start, 2, 1)
+        l_middle.addWidget(self.edit_x_export_end, 2, 2)
         ##### Lower Grid
         l_lower = QGridLayout()
-        # Row 0
-        l_lower.addWidget(self.lbl_x_start, 0, 1)
-        l_lower.addWidget(self.lbl_x_end, 0, 2)
-        # Row 1
-        l_lower.addWidget(self.lbl_definition_range, 1, 0)
-        l_lower.addWidget(self.edit_definition_range_start, 1, 1)
-        l_lower.addWidget(self.edit_definition_range_end, 1, 2)
-        # Rows 2
-        l_lower.addWidget(self.cb_autorange, 2, 0)
-        l_lower.addWidget(self.edit_x_export_start, 2, 1)
-        l_lower.addWidget(self.edit_x_export_end, 2, 2)
+        l_lower.addWidget(self.btn_generate_grid, 0, 0)
+        l_lower.addWidget(self.btn_calculate_points, 0, 1)
+        l_lower.addWidget(self.btn_preview, 0, 2)
         ##### Complete Layout
         l_outer = QVBoxLayout(self)
         l_outer.addLayout(l_upper)
+        l_outer.addLayout(l_middle)
         l_outer.addLayout(l_lower)
         # Fill up empty space to the bottom
         l_outer.addStretch(1)
@@ -1294,6 +1349,7 @@ class CanvasExtentsBox(QGroupBox):
         #model.coordinate_system_changed.connect(self.update_plot_model_view)
         # Update when matplotlib widget changes operating mode
         mpl_widget.canvas_rescaled.connect(self.update_mpl_widget_view)
+        plot_model.ax_conf_changed.connect(self.update_mpl_widget_view)
 
     @logExceptionSlot()
     def update_plot_model_view(self):
@@ -1352,11 +1408,9 @@ class TracesTable(QTableWidget):
         self.btns_pick_trace = []
         self.cbs_enable = []
         self.interp_types = ("C-Splines", "Linear")
-        self.colors = OrderedDict((
-                ("Cyan", "c"), ("Magenta", "m"), ("Yellow", "y"),
-                ("Red", "r"), ("Green", "g"), ("Blue", "b"), ("Black", "k")
-                ))
-        self.colors_reverse = {v: k for k, v in self.colors.items()}
+        self.colors = DescriptiveIDs(
+                ["c", "m", "y", "r", "g", "b", "k"],
+                ["Cyan", "Magenta", "Yellow", "Red", "Green", "Blue", "Black"])
 
         ########## Initialise view from plot_model
         self.update_plot_model_view()
@@ -1390,10 +1444,10 @@ class TracesTable(QTableWidget):
             cb_enable = NumberedCenteredCheckbox(row)
             cb_export = NumberedCenteredCheckbox(row)
             cb_export.setChecked(tr.export)
-            color_key = self.colors_reverse[tr.pts_fmt["color"]]
+            color_index = self.colors.short.index(tr.pts_fmt["color"])
             combo_color = QComboBox()
-            combo_color.addItems(self.colors.keys())
-            combo_color.setCurrentText(color_key)
+            combo_color.addItems(self.colors.long)
+            combo_color.setCurrentIndex(color_index)
             x_start = QTableWidgetItem("0 %")
             x_end = QTableWidgetItem("100 %")
             self.setItem(row, 0, name)
@@ -1409,7 +1463,7 @@ class TracesTable(QTableWidget):
             combo_interp_type.currentIndexChanged[str].connect(self.set_i_type)
             cb_enable.i_toggled.connect(self.mpl_widget.enable_trace)
             cb_export.i_toggled.connect(self.set_export)
-            combo_color.currentIndexChanged[str].connect(self.set_color)
+            combo_color.currentIndexChanged[int].connect(self.set_color)
         # Add placeholder for adding new traces
         row += 1
         self.itm_add_new = QTableWidgetItem("Add New!")
@@ -1481,10 +1535,10 @@ class TracesTable(QTableWidget):
         trace = self.plot_model.traces[self.currentRow()]
         trace.set_interp_type(interp_type)
 
-    @logExceptionSlot(str)
-    def set_color(self, color_keyword: str):
+    @logExceptionSlot(int)
+    def set_color(self, index: int):
         trace = self.plot_model.traces[self.currentRow()]
-        color_code = self.colors[color_keyword]
+        color_code = self.colors.short[index]
         trace.set_color(color_code)
 #    def _handle_selection(self):
 #        self.sel_traces = sel_traces = {

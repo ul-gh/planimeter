@@ -22,20 +22,20 @@ class MosfetDynamic(PhysModelABC):
         plot_capacitances = PlotModel(
                 pma,
                 name="Capacitances",
-                trace_names=("C_ISS", "C_OSS", "C_RSS"),
-                colors=("r", "g", "b"),
+                trace_names=["C_ISS", "C_OSS", "C_RSS"],
+                trace_colors=["r", "g", "b"],
                 )
         plot_conductances = PlotModel(
                 pma,
                 name="Conductances",
-                trace_names=("Transconductance", "Channel Modulation"),
-                colors=("r", "g"),
+                trace_names=["Transconductance", "Channel Modulation"],
+                trace_colors=["r", "g"],
                 )
         plot_diode = PlotModel(
                 pma,
                 name="Reverse Diode",
-                trace_names=("Forward Conductance", "Diffusion Charge"),
-                colors=("g", "b"),
+                trace_names=["Forward Conductance", "Diffusion Charge"],
+                trace_colors=["g", "b"],
                 )
         # Put above into list "plots" of this instance
         self.plots = [plot_capacitances, plot_conductances, plot_diode]
@@ -107,14 +107,14 @@ class Default(PhysModelABC):
         plot_0 = PlotModel(
                 pma,
                 name="Plot 0",
-                trace_names=("Trace 1", "Trace 2", "Trace 3"),
-                colors=("r", "g", "b"),
+                trace_names=["Trace 1", "Trace 2", "Trace 3"],
+                trace_colors=["r", "g", "b"],
                 )
         plot_1 = PlotModel(
                 pma,
                 name="Plot 1",
-                trace_names=("Trace 1", "Trace 2", "Trace 3"),
-                colors=("r", "g", "b"),
+                trace_names=["Trace 1", "Trace 2", "Trace 3"],
+                trace_colors=["r", "g", "b"],
                 )
         self.plots = [plot_0, plot_1]
         # self.curr_exporter = DefaultExporter(self)

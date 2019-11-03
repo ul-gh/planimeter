@@ -7,18 +7,22 @@ License: GPL version 3
 import logging
 logger = logging.getLogger(__name__)
 
-from functools import partial
 from typing import Iterable
+from functools import partial
+from collections import namedtuple
 
 import numpy as np
 from numpy import NaN, isnan, isclose
-from scipy.interpolate import interp1d
-import scipy.integrate as integrate
+
 import scipy.misc as misc
+import scipy.integrate as integrate
+from scipy.interpolate import interp1d
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from upylib.pyqt_debug import logExceptionSlot
+
+DescriptiveIDs = namedtuple("Identifiers", ("short", "long"))
 
 class PhysModelABC():
     """Abstract base class for physical models containing one
@@ -60,10 +64,17 @@ class Exporter():
     """
     def __init__(self, plot_model, conf):
         self.plot_model = plot_model
-        self.traces = plot_model.traces
+        #This can/will be set to a sub-set of all traces by export settings tab
+        self.traces = plot_model.traces.copy()
         self.x_ax = plot_model.x_ax
         self.y_ax = plot_model.y_ax
         ##### Trace export options
+        self.grid_types = DescriptiveIDs(
+                ["adaptive", "lin_fixed_n", "lin_fixed_step",
+                 "log_fixed_n", "log_fixed_n_dec"],
+                ["Adaptive Individual", "Lin Fixed N", "Lin Fixed Step",
+                 "Log Fixed N", "Log Fixed N/dec"])
+        self.grid_type = "fixed_n"
         self.autorange_export = True
         self.extrapolation_types = ["None", "Constant", "Trend"]
         self.extrapolation_type = "None"
@@ -72,13 +83,11 @@ class Exporter():
         self.x_common_range_end = NaN
         self.x_export_start = NaN
         self.x_export_end = NaN
-        # Fixed step size for export range is optional
-        self.fixed_n_pts_export = conf.plot_conf.fixed_n_pts_export
-        self.x_step_export = conf.plot_conf.x_step_export
+        self.x_step = conf.plot_conf.x_step_export
         # Alternative definition of export range by total number of points
-        self.n_pts_export = conf.plot_conf.n_pts_export
+        self.request_n_pts = conf.plot_conf.n_pts_export
         # Number of X-axis points per decade in case of log X grid
-        self.n_pts_dec_export = conf.plot_conf.n_pts_dec_export
+        self.n_pts_dec = conf.plot_conf.n_pts_dec_export
         # Maximum number of export points for user input verification
         self.n_pts_export_max = conf.plot_conf.n_pts_export_max
         # Export grid can be logarithmic independent from original axes scale
@@ -87,7 +96,6 @@ class Exporter():
         ##### Generated X-axis grid in data coordinates used for export
         self.x_grid_export = None # Optional: np.ndarray
 
-    ########## Export Related Methods
     @logExceptionSlot()
     def calculate_export_points(self):
         """Interpolate data from the given trace numbers using a common
@@ -120,17 +128,15 @@ class Exporter():
         ######### Generate export X axis grid
         if self.x_log_scale_export:
             # Grid is specified by number of points per decade; thus using log10
-            x_grid_export = np.geomspace(
+            self.x_grid_export = np.geomspace(
                     self.x_export_start, self.x_export_end, self.n_pts_export)
         else:
-            if self.fixed_n_pts_export:
-                x_grid_export = np.linspace(
+            if self.grid_type == "fixed_n":
+                self.x_grid_export = np.linspace(
                     self.x_export_start, self.x_export_end, self.n_pts_export)
-            else:
-                x_grid_export = np.arange(
+            elif self.grid_type == "fixed_step":
+                self.x_grid_export = np.arange(
                     self.x_export_start, self.x_export_end, self.x_step_export)
-        # Anyways:
-        self.x_grid_export = x_grid_export
 
         ########## Calculate export traces Y data using data output function
         n_interp = x_grid_export.shape[0]
@@ -145,6 +151,36 @@ class Exporter():
             output_arr[row] = output_func(x_grid_export)
         self.output_arr = output_arr
 
+
+    def set_traces(self, *trace_ids):
+        """Select traces for manual exporting.
+        
+        If called without argument, select all traces which have the
+        "export" flag set, i.e. all traces marked in traces config table.
+        
+        If called with one or more numeric IDs, select those traces
+        """
+        if not trace_ids:
+            self.traces = [self.plot_model.traces[i]
+                           for i in self.plot_model.traces
+                           if self.plot_model.traces[i].export]
+        else:
+            self.traces = [self.plot_model.traces[i] for i in trace_ids]
+
+    @logExceptionSlot(int)
+    def set_extrapolation_type(self, type_index):
+        try:
+            self.extrapolation_type = self.extrapolation_types[type_index]
+        except IndexError:
+            self.plot_model.value_error.emit("Index Out of range")
+            return
+
+    @logExceptionSlot(str)
+    def set_grid_type(self, type_str):
+        if type_str not in self.grid_types.short:
+            self.plot_model.value_error.emit("Invalid Grid Type specified")
+            return
+        self.grid_type = type_str
 
     @logExceptionSlot(float)
     def set_x_export_start(self, x_start: float):
@@ -170,9 +206,7 @@ class Exporter():
         self.check_or_update_export_range()
 
     @logExceptionSlot(int)
-    def set_n_pts_export(self, n_pts: int = None):
-        # Step size is now artibrary
-        self.fixed_n_pts_export = True
+    def set_request_n_pts(self, n_pts: int = None):
         if n_pts is None or n_pts > self.n_pts_export_max:
             n_pts = self.n_pts_export_max
             self.plot_model.export_range_warning.emit(
@@ -184,21 +218,20 @@ class Exporter():
         # Calculation only possible when export range is defined
         if not isnan((self.x_export_start, self.x_export_end)).any():
             if self.x_log_scale_export:
-                self._update_n_pts_dec_export()
+                self._update_n_pts_dec()
             else:
-                self._update_x_step_export()
-        self.n_pts_export = n_pts
+                self._update_x_step()
+        self.request_n_pts = n_pts
         self.plot_model.export_settings_changed.emit()
 
     @logExceptionSlot(float)
-    def set_x_step_export(self, x_step: float):
-        self.fixed_n_pts_export = False
+    def set_x_step(self, x_step: float):
         # If called, this assumes linear scale export is desired:
         self.x_log_scale_export = False
         # Validation only possible when export range is defined
         if isnan((self.x_export_start, self.x_export_end)).any():
             # Without validation
-            self.x_step_export = x_step
+            self.x_step = x_step
             return
         # Validation: If the selected X step results in too many points,
         # limit to max. value and emit a warning
@@ -206,25 +239,25 @@ class Exporter():
                 self.x_export_end - self.x_export_start
                 ) / self.n_pts_export_max
         if x_step < x_step_min:
-            self.x_step_export = x_step_min
+            self.x_step = x_step_min
             self.plot_model.export_range_warning.emit(
                     "Step size changed to satisfy maximum points limit!")
         else:
-            self.x_step_export = x_step
+            self.x_step = x_step
         # Update total number of points
-        self.n_pts_export = 1 + int(
+        self.request_n_pts = 1 + int(
                 (self.x_export_end - self.x_export_start) / x_step
                 )
         self.plot_model.export_settings_changed.emit()
 
     @logExceptionSlot(float)
-    def set_n_pts_dec_export(self, n_pts_dec: float):
+    def set_n_pts_dec(self, n_pts_dec: float):
         # If called, this assumes log scale export is desired:
         self.x_log_scale_export = True
         # Validation only possible when export range is defined
         if isnan((self.x_export_start, self.x_export_end)).any():
             # Without validation
-            self.n_pts_dec_export = n_pts_dec
+            self.n_pts_dec = n_pts_dec
             return
         # Validation: If the selected X step results in too many points,
         # limit to max. value and emit a warning
@@ -238,9 +271,9 @@ class Exporter():
             self.plot_model.export_range_warning.emit(
                 "Value changed to satisfy maximum number of points limit!")
         else:
-            self.n_pts_dec_export = n_pts_dec
+            self.n_pts_dec = n_pts_dec
         # Update total number of points
-        self.n_pts_export = N_tot
+        self.request_n_pts = N_tot
         self.plot_model.export_settings_changed.emit()
 
     # Called from plot_model._process_tr_input_data().
@@ -273,13 +306,13 @@ class Exporter():
             self.x_export_start = self.x_common_range_start
             self.x_export_end = self.x_common_range_end
             # Update dependent attributes
-            if self.fixed_n_pts_export:
+            if self.grid_type == "fixed_n":
                 if self.x_log_scale_export:
-                    self._update_n_pts_dec_export()
+                    self._update_n_pts_dec()
                 else:
-                    self._update_x_step_export()
+                    self._update_x_step()
             else:
-                self._update_n_pts_export()
+                self._update_n_pts()
         else:
             # Range check only
             if (    self.x_export_start < self.x_common_range_start
@@ -291,32 +324,32 @@ class Exporter():
         self.plot_model.export_settings_changed.emit()
 
     # Update total number of output points when export range is changed
-    def _update_n_pts_export(self):
+    def _update_n_pts(self):
         if self.x_log_scale_export:
             x_start_lin = np.log10(self.x_export_start)
             x_end_lin = np.log10(self.x_export_end)
             n_dec = x_end_lin - x_start_lin
-            N_tot = n_dec * self.n_pts_dec_export
-            self.n_pts_export = min(
+            N_tot = n_dec * self.n_pts_dec
+            self.request_n_pts = min(
                     self.n_pts_export_max,
                     N_tot
                     )
         else:
-            x_step = self.x_step_export
-            self.n_pts_export = min(
+            x_step = self.x_step
+            self.request_n_pts = min(
                     self.n_pts_export_max,
                     1 + int((self.x_export_end - self.x_export_start) / x_step)
                     )
 
-    def _update_n_pts_dec_export(self):
+    def _update_n_pts_dec(self):
         x_start_lin = np.log10(self.x_export_start)
         x_end_lin = np.log10(self.x_export_end)
         n_dec = x_end_lin - x_start_lin
-        self.n_pts_dec_export = self.n_pts_export / n_dec
+        self.n_pts_dec = self.request_n_pts / n_dec
 
-    def _update_x_step_export(self):
-        self.x_step_export = (self.x_export_end - self.x_export_start
-                       ) / self.n_pts_export
+    def _update_x_step(self):
+        self.x_step = (self.x_export_end - self.x_export_start
+                       ) / self.request_n_pts
 
 
 class PlotModel(QObject):
@@ -366,13 +399,15 @@ class PlotModel(QObject):
     # GUI feedback when export range settings are outside of points range
     export_range_warning = pyqtSignal(str)
 
-    def __init__(self, parent, name="Plot Model", trace_names=[], colors=[]):
+    def __init__(self, parent, name="Plot Model", trace_names=[], trace_colors=[]):
         super().__init__(parent)
         self.conf = conf = parent.conf
         if not trace_names:
-            trace_names = conf.plot_conf.traces_names
-        if not colors:
-            colors = conf.plot_conf.traces_colors
+            self.trace_names = conf.plot_conf.trace_names
+        else:
+            self.trace_names = trace_names
+        if not trace_colors:
+            trace_colors = conf.plot_conf.trace_colors
         ########## Plot model composition
         self.name = name
         ##### Two axes
@@ -393,9 +428,9 @@ class PlotModel(QObject):
             Trace(self, conf.trace_conf, trace_no, name, color)
             for trace_no, name, color
             in zip( # trace_no: enumeration from zero in order of trace_names
-                    range(len(trace_names)),
-                    trace_names,
-                    colors,
+                    range(len(self.trace_names)),
+                    self.trace_names,
+                    trace_colors,
                     )
             ]
 
@@ -834,6 +869,7 @@ class Trace(QObject):
     @pyqtSlot(str)
     def set_name(self, name: str):
         self.name = name
+        self.model.trace_names[self.trace_no] = name
         self.model.tr_conf_changed.emit()
 
     @pyqtSlot(str)

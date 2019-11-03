@@ -47,8 +47,8 @@ class PLOT_MODEL():
     # Absolute tolerance for testing if values are close to zero
     atol = 1e-18
     # Default trace names and colors
-    traces_names = "Trace 1", "Trace 2", "Trace 3"
-    traces_colors = "r", "g", "b"
+    trace_names = ["Trace 1", "Trace 2", "Trace 3"]
+    trace_colors = ["r", "g", "b"]
     # Matplotlib plot keyword options as a dictionary
     origin_fmt = {"color": "c", "marker": "o", "markersize": 15.0,
                   "markerfacecolor": "none", "markeredgewidth": 2.0}
