@@ -7,7 +7,7 @@ License: GPL version 3
 import logging
 logger = logging.getLogger(__name__)
 
-from typing import Iterable
+from typing import Iterable, Optional, Union
 from functools import partial
 from collections import namedtuple
 
@@ -74,7 +74,7 @@ class Exporter():
                  "log_fixed_n", "log_fixed_n_dec"],
                 ["Adaptive Individual", "Lin Fixed N", "Lin Fixed Step",
                  "Log Fixed N", "Log Fixed N/dec"])
-        self.grid_type = "fixed_n"
+        self.grid_type = "lin_fixed_n"
         self.autorange_export = True
         self.extrapolation_types = ["None", "Constant", "Trend"]
         self.extrapolation_type = "None"
@@ -94,7 +94,8 @@ class Exporter():
         self.x_log_scale_export = False
 
         ##### Generated X-axis grid in data coordinates used for export
-        self.x_grid_export = None # Optional: np.ndarray
+        self.x_grid_export: Optional[np.ndarray] = None
+
 
     @logExceptionSlot()
     def calculate_export_points(self):
@@ -152,7 +153,7 @@ class Exporter():
         self.output_arr = output_arr
 
 
-    def set_traces(self, *trace_ids):
+    def set_traces(self, *trace_ids: int):
         """Select traces for manual exporting.
         
         If called without argument, select all traces which have the
@@ -161,9 +162,7 @@ class Exporter():
         If called with one or more numeric IDs, select those traces
         """
         if not trace_ids:
-            self.traces = [self.plot_model.traces[i]
-                           for i in self.plot_model.traces
-                           if self.plot_model.traces[i].export]
+            self.traces = [tr for tr in self.plot_model.traces if tr.export]
         else:
             self.traces = [self.plot_model.traces[i] for i in trace_ids]
 
@@ -180,7 +179,12 @@ class Exporter():
         if type_str not in self.grid_types.short:
             self.plot_model.value_error.emit("Invalid Grid Type specified")
             return
+        if type_str.startswith("log_"):
+            self.x_log_scale_export = True
+        else:
+            self.x_log_scale_export = False
         self.grid_type = type_str
+        self.plot_model.export_settings_changed.emit()
 
     @logExceptionSlot(float)
     def set_x_export_start(self, x_start: float):
@@ -205,16 +209,23 @@ class Exporter():
         self.autorange_export = state
         self.check_or_update_export_range()
 
+    @logExceptionSlot(str)
     @logExceptionSlot(int)
-    def set_request_n_pts(self, n_pts: int = None):
+    def set_request_n_pts(self, n_pts: Optional[Union[int, str]] = None):
+        if type(n_pts) is str:
+            try:
+                n_pts = int(n_pts.replace(",", "."))
+            except ValueError:
+                self.plot_model.export_range_warning.emit("Invalid Value")
+                return
         if n_pts is None or n_pts > self.n_pts_export_max:
             n_pts = self.n_pts_export_max
             self.plot_model.export_range_warning.emit(
-                "Value set to maximum number of points limit!")
+                    "Value set to maximum number of points limit!")
         if n_pts < 1:
             n_pts = 1
             self.plot_model.export_range_warning.emit(
-                "Value changed to one point minimum")
+                    "Value changed to one point minimum")
         # Calculation only possible when export range is defined
         if not isnan((self.x_export_start, self.x_export_end)).any():
             if self.x_log_scale_export:
@@ -887,6 +898,11 @@ class Trace(QObject):
         self.pts_fmt["color"] = color_code
         self.pts_i_fmt["color"] = color_code
         self.model.tr_conf_changed.emit()
+
+    @pyqtSlot(bool)
+    def set_export(self, state: bool):
+        self.export = state
+        self.model.export_settings_changed.emit()
 
     def clear_trace(self):
         """Clears this trace and re-initialises with zero presets

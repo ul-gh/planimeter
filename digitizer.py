@@ -12,7 +12,7 @@ import os
 import tempfile
 import numpy as np
 from numpy import NaN, isnan
-from collections import namedtuple
+from typing import Optional
 
 from PyQt5.QtCore import Qt, QDir, QSize, QMimeData, QTimer, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QIcon, QIntValidator
@@ -985,6 +985,8 @@ class ExportSettingsTab(QWidget):
         super().__init__(mpl_widget)
         self.plot_model = plot_model
         self.exporter = plot_model.exporter
+        # Reentrancy guard
+        self._inhibit_updates = False
         ######### Setup widgets
         self.setStyleSheet(
                 "QLineEdit {background-color: White}\n"
@@ -1053,10 +1055,9 @@ class ExportSettingsTab(QWidget):
 
         ########## Connect own and sub-widget signals
         self.combo_traces_select.currentIndexChanged[int].connect(
-                self.set_traces)
+                self._update_active_traces)
         self.combo_request_n_pts.currentTextChanged.connect(
-                lambda s: self.exporter.set_request_n_pts(int(s))
-                )
+                self.exporter.set_request_n_pts)
         self.combo_grid_type.currentIndexChanged.connect(
                 self._set_grid_type)
         self.edit_grid_parameter.valid_number_entered.connect(
@@ -1069,14 +1070,44 @@ class ExportSettingsTab(QWidget):
                 self.do_preview_plot)
 
         ########## Connect foreign signals
+        plot_model.output_data_changed.connect(self.update_plot_model_view)
+        plot_model.output_data_changed[int].connect(self.update_plot_model_view)
         plot_model.export_settings_changed.connect(self.update_plot_model_view)
+        # Update list of active traces
+        plot_model.export_settings_changed.connect(self._update_active_traces)
         # Update when matplotlib widget changes operating mode
         mpl_widget.mode_sw.connect(self.update_mpl_widget_view)
 
     @logExceptionSlot()
-    def update_plot_model_view(self):
+    def update_plot_model_view(self, _=None):
+        # Prevent recursive updates when called via signal from model
+        if self._inhibit_updates:
+            return
         #self.btn_lin_export.setChecked(not self.plot_model.x_log_scale_export)
         #self.btn_log_export.setChecked(self.plot_model.x_log_scale_export)
+        self.combo_request_n_pts.setCurrentText(f"{self.exporter.request_n_pts}")
+        self.edit_actual_n_pts.setText(
+                "" if self.exporter.x_grid_export is None
+                else f"{self.exporter.x_grid_export}")
+        type_str = self.exporter.grid_type
+        type_index = self.exporter.grid_types.short.index(type_str)
+        if type_str == "fixed_n":
+            self.lbl_grid_parameter.setText("Step Size")
+            self.edit_grid_parameter.setReadOnly(True)
+            self.combo_request_n_pts.setEnabled(True)
+        elif type_str == "fixed_step":
+            self.lbl_grid_parameter.setText("Step Size")
+            self.edit_grid_parameter.setReadOnly(False)
+            self.combo_request_n_pts.setEnabled(False)
+        elif type_str == "log_n_dec":
+            self.lbl_grid_parameter.setText("Points/Decade")
+            self.edit_grid_parameter.setReadOnly(False)
+            self.combo_request_n_pts.setEnabled(False)
+        elif type_str == "adaptive":
+            self.lbl_grid_parameter.setText("Q Factor")
+            self.edit_grid_parameter.setReadOnly(False)
+            self.combo_request_n_pts.setEnabled(False)
+        self.combo_grid_type.setCurrentIndex(type_index)
         self.cb_autorange.setChecked(self.exporter.autorange_export)
         self.edit_definition_range_start.setValue(self.exporter.x_common_range_start)
         self.edit_definition_range_end.setValue(self.exporter.x_common_range_end)
@@ -1084,21 +1115,28 @@ class ExportSettingsTab(QWidget):
         self.edit_x_export_end.setValue(self.exporter.x_export_end)
         self.edit_x_export_start.setReadOnly(self.exporter.autorange_export)
         self.edit_x_export_end.setReadOnly(self.exporter.autorange_export)
+        self._inhibit_updates = False
 
-    @logExceptionSlot(int)
-    def set_traces(self, index):
+    @logExceptionSlot()
+    def _update_active_traces(self, _=None):
+        # Prevent recursive updates when called via signal from model
+        if self._inhibit_updates:
+            return
+        self._inhibit_updates = True
+        index = self.combo_traces_select.currentIndex()
         if index == 0:
             # Selects all traces marked for export
             self.exporter.set_traces()
         else:
-            self.exporter.set_traces(index)
+            self.exporter.set_traces(index - 1)
+        self._inhibit_updates = False
             
     @logExceptionSlot(int)
-    def update_mpl_widget_view(self, op_mode):
+    def update_mpl_widget_view(self, op_mode: int):
         pass
 
     @logExceptionSlot(bool)
-    def do_preview_plot(self, state):
+    def do_preview_plot(self, state: bool):
         logger.info("FIXME: Preview not yet implemented!")
 
     @logExceptionSlot(float)
@@ -1109,24 +1147,8 @@ class ExportSettingsTab(QWidget):
             self.exporter.set_x_step(value)
     
     @logExceptionSlot(int)
-    def _set_grid_type(self, index):
+    def _set_grid_type(self, index: int):
         type_str = self.exporter.grid_types.short[index]
-        if type_str == "fixed_n":
-            self.lbl_grid_parameter.setText("Step Size")
-            self.edit_grid_parameter.setReadOnly(True)
-            self.combo_request_n_pts.setEditable(True)
-        elif type_str == "fixed_step":
-            self.lbl_grid_parameter.setText("Step Size")
-            self.edit_grid_parameter.setReadOnly(False)
-            self.combo_request_n_pts.setEditable(False)
-        elif type_str == "log_n_dec":
-            self.lbl_grid_parameter.setText("Points/Decade")
-            self.edit_grid_parameter.setReadOnly(False)
-            self.combo_request_n_pts.setEditable(False)
-        elif type_str == "adaptive":
-            self.lbl_grid_parameter.setText("Q Factor")
-            self.edit_grid_parameter.setReadOnly(False)
-            self.combo_request_n_pts.setEditable(False)
         self.exporter.set_grid_type(type_str)
 
     @logExceptionSlot(bool)
@@ -1528,7 +1550,7 @@ class TracesTable(QTableWidget):
     @logExceptionSlot(int, bool)
     def set_export(self, trace_no, state=True):
         trace = self.plot_model.traces[trace_no]
-        trace.export = state
+        trace.set_export(state)
 
     @logExceptionSlot(str)
     def set_i_type(self, interp_type: str):
