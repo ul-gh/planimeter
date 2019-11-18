@@ -97,6 +97,7 @@ class Digitizer(QWidget):
         self.toolbar.act_export_xlsx.triggered.connect(self.dlg_export_xlsx.open)
         self.toolbar.act_put_clipboard.triggered.connect(self.put_clipboard)
 
+
     @pyqtSlot(str)
     def set_wdir(self, abs_path):
         # Set working directory to last opened file directory
@@ -996,7 +997,6 @@ class ExportSettingsTab(QWidget):
         self.lbl_extrapolation = QLabel("Extrapolation")
         self.combo_extrapolation = QComboBox()
         self.combo_extrapolation.addItems(self.exporter.extrapolation_types)
-
         self.lbl_traces_select = QLabel("Export Traces")
         self.combo_traces_select = QComboBox()
         self.combo_traces_select.addItems(
@@ -1004,19 +1004,20 @@ class ExportSettingsTab(QWidget):
         self.lbl_grid_type = QLabel("Grid Type")
         self.combo_grid_type = QComboBox()
         self.combo_grid_type.addItems(self.exporter.grid_types.long)
-
-        self.lbl_request_n_pts = QLabel("Target N Points")
-        self.combo_request_n_pts = QComboBox(editable=True)
-        self.combo_request_n_pts.setValidator(QIntValidator())
-        self.combo_request_n_pts.addItems(["10", "15", "20", "35", "50", "100"])
-        self.lbl_actual_n_pts = QLabel("Generated N pts")
-        self.edit_actual_n_pts = QLineEdit(readOnly=True)
-        self.lbl_grid_parameter = QLabel("Step Size / N/dec / Q")
+        self.lbl_n_pts_target = QLabel("Target N Points")
+        self.combo_n_pts_target = QComboBox(editable=True)
+        self.combo_n_pts_target.setValidator(QIntValidator())
+        self.combo_n_pts_target.addItems(["10", "15", "20", "35", "50", "100"])
+        self.lbl_n_pts_actual = QLabel("Generated N pts")
+        self.edit_n_pts_actual = QLineEdit(readOnly=True)
+        self.lbl_grid_parameter = QLabel("Step Size / N/dec / Tol")
         self.edit_grid_parameter = SciLineEdit(
-                0.1, "Step Size", self.plot_model.num_fmt)
+                0.1, "Grid Parameter", self.plot_model.num_fmt)
         self.btn_generate_grid = QPushButton("Generate Grid")
         self.btn_calculate_points = QPushButton("Calculate Points")
         self.btn_preview = QPushButton("Preview Plot")
+        self.lbl_warning = QLabel("Warnings:")
+        self.edit_warning_display = QLineEdit()
 
         ##### Lower grid layout: Definition range display and export range edit
         self.lbl_x_start = QLabel("Start")
@@ -1056,16 +1057,24 @@ class ExportSettingsTab(QWidget):
         ########## Connect own and sub-widget signals
         self.combo_traces_select.currentIndexChanged[int].connect(
                 self._update_active_traces)
-        self.combo_request_n_pts.currentTextChanged.connect(
-                self.exporter.set_request_n_pts)
+        self.combo_n_pts_target.currentTextChanged.connect(
+                self.exporter.set_n_pts_target)
         self.combo_grid_type.currentIndexChanged.connect(
                 self._set_grid_type)
         self.edit_grid_parameter.valid_number_entered.connect(
                 self._set_grid_parameter)
-        self.cb_autorange.toggled.connect(
-                self._set_autorange)
         self.combo_extrapolation.currentIndexChanged.connect(
                 self.exporter.set_extrapolation_type)
+        self.cb_autorange.toggled.connect(
+                self._set_autorange)
+        self.edit_x_export_start.valid_number_entered.connect(
+                self.exporter.set_x_export_start)
+        self.edit_x_export_end.valid_number_entered.connect(
+                self.exporter.set_x_export_end)
+        self.btn_generate_grid.clicked.connect(
+                self.exporter.generate_grid)
+        self.btn_calculate_points.clicked.connect(
+                self.exporter.calculate_points)
         self.btn_preview.clicked.connect(
                 self.do_preview_plot)
 
@@ -1077,36 +1086,48 @@ class ExportSettingsTab(QWidget):
         plot_model.export_settings_changed.connect(self._update_active_traces)
         # Update when matplotlib widget changes operating mode
         mpl_widget.mode_sw.connect(self.update_mpl_widget_view)
+        plot_model.export_range_warning.connect(self.edit_warning_display.setText)
 
     @logExceptionSlot()
     def update_plot_model_view(self, _=None):
         # Prevent recursive updates when called via signal from model
         if self._inhibit_updates:
             return
-        #self.btn_lin_export.setChecked(not self.plot_model.x_log_scale_export)
-        #self.btn_log_export.setChecked(self.plot_model.x_log_scale_export)
-        self.combo_request_n_pts.setCurrentText(f"{self.exporter.request_n_pts}")
-        self.edit_actual_n_pts.setText(
-                "" if self.exporter.x_grid_export is None
-                else f"{self.exporter.x_grid_export}")
+        self.combo_n_pts_target.setCurrentText(f"{self.exporter.n_pts_target}")
+        actual_pts_text = ("" if self.exporter.x_grid_export is None
+                           else f"{self.exporter.x_grid_export.shape[0]}")
         type_str = self.exporter.grid_type
         type_index = self.exporter.grid_types.short.index(type_str)
-        if type_str == "fixed_n":
+        if type_str == "lin_fixed_n":
             self.lbl_grid_parameter.setText("Step Size")
             self.edit_grid_parameter.setReadOnly(True)
-            self.combo_request_n_pts.setEnabled(True)
-        elif type_str == "fixed_step":
+            self.edit_grid_parameter.setValue(self.exporter.x_step)
+            self.combo_n_pts_target.setEnabled(True)
+            self.edit_n_pts_actual.setText(actual_pts_text)
+        elif type_str == "lin_fixed_step":
             self.lbl_grid_parameter.setText("Step Size")
             self.edit_grid_parameter.setReadOnly(False)
-            self.combo_request_n_pts.setEnabled(False)
-        elif type_str == "log_n_dec":
+            self.edit_grid_parameter.setValue(self.exporter.x_step)
+            self.combo_n_pts_target.setEnabled(False)
+            self.edit_n_pts_actual.setText(actual_pts_text)
+        elif type_str == "log_fixed_n_dec":
             self.lbl_grid_parameter.setText("Points/Decade")
             self.edit_grid_parameter.setReadOnly(False)
-            self.combo_request_n_pts.setEnabled(False)
+            self.edit_grid_parameter.setValue(self.exporter.n_pts_dec)
+            self.combo_n_pts_target.setEnabled(False)
+            self.edit_n_pts_actual.setText(actual_pts_text)
+        elif type_str == "log_fixed_n":
+            self.lbl_grid_parameter.setText("Points/Decade")
+            self.edit_grid_parameter.setReadOnly(True)
+            self.edit_grid_parameter.setValue(self.exporter.n_pts_dec)
+            self.combo_n_pts_target.setEnabled(True)
+            self.edit_n_pts_actual.setText(actual_pts_text)
         elif type_str == "adaptive":
-            self.lbl_grid_parameter.setText("Q Factor")
+            self.lbl_grid_parameter.setText("Grid Tolerance")
             self.edit_grid_parameter.setReadOnly(False)
-            self.combo_request_n_pts.setEnabled(False)
+            self.edit_grid_parameter.setValue(self.exporter.grid_tol)
+            self.combo_n_pts_target.setEnabled(True)
+            self.edit_n_pts_actual.setText("Individual")
         self.combo_grid_type.setCurrentIndex(type_index)
         self.cb_autorange.setChecked(self.exporter.autorange_export)
         self.edit_definition_range_start.setValue(self.exporter.x_common_range_start)
@@ -1141,7 +1162,9 @@ class ExportSettingsTab(QWidget):
 
     @logExceptionSlot(float)
     def _set_grid_parameter(self, value: float):
-        if self.exporter.x_log_scale_export:
+        if self.exporter.grid_type == "adaptive":
+            self.exporter.set_grid_tol(value)
+        elif self.exporter.grid_type == "log_fixed_n_dec":
             self.exporter.set_n_pts_dec(value)
         else:
             self.exporter.set_x_step(value)
@@ -1165,12 +1188,12 @@ class ExportSettingsTab(QWidget):
         l_upper.setColumnStretch(2, 2)
         # Row 0
         l_upper.addWidget(self.lbl_traces_select, 0, 0)
-        l_upper.addWidget(self.lbl_request_n_pts, 0, 1)
-        l_upper.addWidget(self.lbl_actual_n_pts, 0, 2)
+        l_upper.addWidget(self.lbl_n_pts_target, 0, 1)
+        l_upper.addWidget(self.lbl_n_pts_actual, 0, 2)
         # Row 1
         l_upper.addWidget(self.combo_traces_select, 1, 0)
-        l_upper.addWidget(self.combo_request_n_pts, 1, 1)
-        l_upper.addWidget(self.edit_actual_n_pts, 1, 2)
+        l_upper.addWidget(self.combo_n_pts_target, 1, 1)
+        l_upper.addWidget(self.edit_n_pts_actual, 1, 2)
         # Row 2
         l_upper.addWidget(self.lbl_grid_type, 2, 0)
         l_upper.addWidget(self.lbl_grid_parameter, 2, 1)
@@ -1197,6 +1220,8 @@ class ExportSettingsTab(QWidget):
         l_lower.addWidget(self.btn_generate_grid, 0, 0)
         l_lower.addWidget(self.btn_calculate_points, 0, 1)
         l_lower.addWidget(self.btn_preview, 0, 2)
+        l_lower.addWidget(self.lbl_warning, 1, 1)
+        l_lower.addWidget(self.edit_warning_display, 2, 0, 1, 3)
         ##### Complete Layout
         l_outer = QVBoxLayout(self)
         l_outer.addLayout(l_upper)

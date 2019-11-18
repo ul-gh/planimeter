@@ -39,11 +39,13 @@ class PLOT_MODEL():
     n_pts_export = 100
     # Number of X-axis interpolation points for data export for log X grid
     n_pts_dec_export = 100
+    # Default length tolerance for generation of adaptive grid
+    grid_tol = 0.03
     # Maximum number of export points
     n_pts_export_max = 100000
     # Alternatively to fixed number of points, a custom set X axis increment
     # can be used.
-    x_step_export = None
+    x_step_export = float("NaN")
     # Absolute tolerance for testing if values are close to zero
     atol = 1e-18
     # Default trace names and colors

@@ -20,6 +20,7 @@ from scipy.interpolate import interp1d
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
+from adaptive_sampling import sample_function
 from upylib.pyqt_debug import logExceptionSlot
 
 DescriptiveIDs = namedtuple("Identifiers", ("short", "long"))
@@ -69,6 +70,7 @@ class Exporter():
         self.x_ax = plot_model.x_ax
         self.y_ax = plot_model.y_ax
         ##### Trace export options
+        # Export grid can be logarithmic independent from original axes scale
         self.grid_types = DescriptiveIDs(
                 ["adaptive", "lin_fixed_n", "lin_fixed_step",
                  "log_fixed_n", "log_fixed_n_dec"],
@@ -85,72 +87,58 @@ class Exporter():
         self.x_export_end = NaN
         self.x_step = conf.plot_conf.x_step_export
         # Alternative definition of export range by total number of points
-        self.request_n_pts = conf.plot_conf.n_pts_export
+        self.n_pts_target = conf.plot_conf.n_pts_export
         # Number of X-axis points per decade in case of log X grid
         self.n_pts_dec = conf.plot_conf.n_pts_dec_export
+        # Default length tolerance for generation of adaptive grid
+        self.grid_tol = conf.plot_conf.grid_tol
         # Maximum number of export points for user input verification
         self.n_pts_export_max = conf.plot_conf.n_pts_export_max
-        # Export grid can be logarithmic independent from original axes scale
-        self.x_log_scale_export = False
 
         ##### Generated X-axis grid in data coordinates used for export
         self.x_grid_export: Optional[np.ndarray] = None
 
 
-    @logExceptionSlot()
-    def calculate_export_points(self):
-        """Interpolate data from the given trace numbers using a common
-        interpolation grid with n_interp X-axis points, spaced evenly
-        in linearised data coordinate units between x_start and x_end
-        and return the resulting data as rows.
-        
-        Parameters from DataModel instance:
-            self.traces : Trace[*]
-                One or more traces (zero-indexed) for which to
-                interpolate and export data
-            self.x_grid_export : np.ndarray
-                Common X axis values for all traces
-        
-        Outputs:
-            self.output_arr : np.ndarray
-                Output trace data with X axis values in first row,
-                traces data in following rows
-        
-        Note:
-        For generating the export data on any grid, an the generated
-        interpolation function is used in any case.
-        By default, the cubic spline polynomial interpolation is used.
-        This function needs at least four data points from each trace.
-        For linear interpolation, at least two data points are needed.
-
-        If no interpolation data is available for a trace, a column of
-        NaN values is returned for that trace.
-        """
-        ######### Generate export X axis grid
-        if self.x_log_scale_export:
+    @logExceptionSlot(bool)
+    def generate_grid(self, _=False):
+        if self.grid_type == "lin_fixed_n":
+            self.x_grid_export = np.linspace(
+                    self.x_export_start, self.x_export_end, self.n_pts_target)
+        elif self.grid_type == "lin_fixed_step":
+            self.x_grid_export = np.arange(
+                    self.x_export_start, self.x_export_end, self.x_step)
+        elif self.grid_type == "log_fixed_n":
             # Grid is specified by number of points per decade; thus using log10
             self.x_grid_export = np.geomspace(
-                    self.x_export_start, self.x_export_end, self.n_pts_export)
-        else:
-            if self.grid_type == "fixed_n":
-                self.x_grid_export = np.linspace(
-                    self.x_export_start, self.x_export_end, self.n_pts_export)
-            elif self.grid_type == "fixed_step":
-                self.x_grid_export = np.arange(
-                    self.x_export_start, self.x_export_end, self.x_step_export)
+                    self.x_export_start, self.x_export_end, self.n_pts_target)
+        elif self.grid_type == "log_fixed_n_dec":
+            # This uses the same pre-calculated value for n_pts_target
+            self.x_grid_export = np.geomspace(
+                    self.x_export_start, self.x_export_end, self.n_pts_target)
+        elif self.grid_type == "adaptive":
+            self.plot_model.export_range_warning.emit(
+                    'Adaptive grid can not be generated separately; '
+                    'use "Calculate Points" instead!')
+        self.plot_model.export_settings_changed.emit()
 
+    @logExceptionSlot(bool)
+    def calculate_points(self, _=False):
+        """ Generate output points
+        """
         ########## Calculate export traces Y data using data output function
-        n_interp = x_grid_export.shape[0]
-        output_funcs = [
-                tr.output_funcs[tr.post_processing]
-                for tr in self.traces
-                if tr.f_interp is not None and tr.export
-                ]
-        output_arr = np.empty((1+len(output_funcs), n_interp))
-        output_arr[0] = x_grid_export
-        for row, output_func in enumerate(output_funcs, start=1):
-            output_arr[row] = output_func(x_grid_export)
-        self.output_arr = output_arr
+        if self.grid_type == "adaptive":
+            for tr in self.traces:
+                if tr.f_interp is None:
+                    continue
+                tr.x_output, tr.y_output = sample_function(
+                        tr.f_interp, [self.x_export_start, self.x_export_end],
+                        tol=self.grid_tol, min_points=self.n_pts_target)
+        else:
+            for tr in self.traces:
+                if tr.f_interp is None:
+                    continue
+                tr.x_output = self.x_grid_export.copy()
+                tr.y_output = tr.f_interp(self.x_grid_export)
 
 
     def set_traces(self, *trace_ids: int):
@@ -165,6 +153,7 @@ class Exporter():
             self.traces = [tr for tr in self.plot_model.traces if tr.export]
         else:
             self.traces = [self.plot_model.traces[i] for i in trace_ids]
+        self.check_or_update_export_range()
 
     @logExceptionSlot(int)
     def set_extrapolation_type(self, type_index):
@@ -179,16 +168,12 @@ class Exporter():
         if type_str not in self.grid_types.short:
             self.plot_model.value_error.emit("Invalid Grid Type specified")
             return
-        if type_str.startswith("log_"):
-            self.x_log_scale_export = True
-        else:
-            self.x_log_scale_export = False
         self.grid_type = type_str
-        self.plot_model.export_settings_changed.emit()
+        self.check_or_update_export_range()
 
     @logExceptionSlot(float)
     def set_x_export_start(self, x_start: float):
-        if isclose(self.x_export_end - x_start, 0.0, atol=self.atol):
+        if isclose(self.x_export_end - x_start, 0.0, atol=self.plot_model.atol):
             self.plot_model.value_error.emit("X axis section must not be zero length")
             return
         self.autorange_export = False
@@ -197,7 +182,7 @@ class Exporter():
 
     @logExceptionSlot(float)
     def set_x_export_end(self, x_end: float):
-        if isclose(x_end - self.x_export_start, 0.0, atol=self.atol):
+        if isclose(x_end - self.x_export_start, 0.0, atol=self.plot_model.atol):
             self.plot_model.value_error.emit("X axis section must not be zero length")
             return
         self.autorange_export = False
@@ -211,34 +196,37 @@ class Exporter():
 
     @logExceptionSlot(str)
     @logExceptionSlot(int)
-    def set_request_n_pts(self, n_pts: Optional[Union[int, str]] = None):
+    def set_n_pts_target(self, n_pts: Optional[Union[int, str]]):
         if type(n_pts) is str:
             try:
                 n_pts = int(n_pts.replace(",", "."))
             except ValueError:
                 self.plot_model.export_range_warning.emit("Invalid Value")
                 return
-        if n_pts is None or n_pts > self.n_pts_export_max:
-            n_pts = self.n_pts_export_max
+        if n_pts > self.n_pts_export_max:
+            self.n_pts_target = self.n_pts_export_max
             self.plot_model.export_range_warning.emit(
                     "Value set to maximum number of points limit!")
-        if n_pts < 1:
-            n_pts = 1
+        elif n_pts < 1:
+            self.n_pts_target = 1
             self.plot_model.export_range_warning.emit(
                     "Value changed to one point minimum")
+        else:
+            self.n_pts_target = n_pts
         # Calculation only possible when export range is defined
-        if not isnan((self.x_export_start, self.x_export_end)).any():
-            if self.x_log_scale_export:
-                self._update_n_pts_dec()
-            else:
-                self._update_x_step()
-        self.request_n_pts = n_pts
+        if self.grid_type == "log_fixed_n":
+            self._update_n_pts_dec()
+        elif self.grid_type == "lin_fixed_n":
+            self._update_x_step()
+        self.plot_model.export_settings_changed.emit()
+
+    @logExceptionSlot(float)
+    def set_grid_tol(self, tol: float):
+        self.grid_tol = tol
         self.plot_model.export_settings_changed.emit()
 
     @logExceptionSlot(float)
     def set_x_step(self, x_step: float):
-        # If called, this assumes linear scale export is desired:
-        self.x_log_scale_export = False
         # Validation only possible when export range is defined
         if isnan((self.x_export_start, self.x_export_end)).any():
             # Without validation
@@ -256,15 +244,13 @@ class Exporter():
         else:
             self.x_step = x_step
         # Update total number of points
-        self.request_n_pts = 1 + int(
+        self.n_pts_target = 1 + int(
                 (self.x_export_end - self.x_export_start) / x_step
                 )
         self.plot_model.export_settings_changed.emit()
 
     @logExceptionSlot(float)
     def set_n_pts_dec(self, n_pts_dec: float):
-        # If called, this assumes log scale export is desired:
-        self.x_log_scale_export = True
         # Validation only possible when export range is defined
         if isnan((self.x_export_start, self.x_export_end)).any():
             # Without validation
@@ -284,7 +270,7 @@ class Exporter():
         else:
             self.n_pts_dec = n_pts_dec
         # Update total number of points
-        self.request_n_pts = N_tot
+        self.n_pts_target = N_tot
         self.plot_model.export_settings_changed.emit()
 
     # Called from plot_model._process_tr_input_data().
@@ -295,9 +281,9 @@ class Exporter():
     def check_or_update_export_range(self):
         # Calculate interpolation limits
         tr_start_lin = [tr.pts_linscale[0,0] for tr in self.traces
-                        if tr.export and tr.pts_linscale.shape[0] > 1]
+                        if tr.pts_linscale.shape[0] > 1]
         tr_end_lin = [tr.pts_linscale[-1,0] for tr in self.traces
-                      if tr.export and tr.pts_linscale.shape[0] > 1]
+                      if tr.pts_linscale.shape[0] > 1]
         if not tr_start_lin or not tr_end_lin:
             #logger.debug(f"No export range. No traces marked for export?")
             return
@@ -317,11 +303,10 @@ class Exporter():
             self.x_export_start = self.x_common_range_start
             self.x_export_end = self.x_common_range_end
             # Update dependent attributes
-            if self.grid_type == "fixed_n":
-                if self.x_log_scale_export:
-                    self._update_n_pts_dec()
-                else:
-                    self._update_x_step()
+            if self.grid_type =="lin_fixed_n":
+                self._update_x_step()
+            elif self.grid_type == "log_fixed_n":
+                self._update_n_pts_dec()
             else:
                 self._update_n_pts()
         else:
@@ -330,37 +315,51 @@ class Exporter():
                     or self.x_export_end > self.x_common_range_end
                     ):
                 logger.warn("Export range is extrapolated!")
-                self.plot_model.export_range_warning.emit()
+                self.plot_model.export_range_warning.emit("Range extrapolated!")
         # Anyways:
         self.plot_model.export_settings_changed.emit()
 
-    # Update total number of output points when export range is changed
+    # Update target number of output points when export range is changed.
+    # This only applies for grids with fixed step size or fixed pts/decade
     def _update_n_pts(self):
-        if self.x_log_scale_export:
+        if self.grid_type == "log_fixed_n_dec":
+            if (isnan((self.n_pts_dec, self.x_export_start, self.x_export_end)).any()
+                or isclose((self.x_export_start, self.x_export_end), (0, 0),
+                            atol=self.plot_model.atol).any()):
+                return
             x_start_lin = np.log10(self.x_export_start)
             x_end_lin = np.log10(self.x_export_end)
             n_dec = x_end_lin - x_start_lin
             N_tot = n_dec * self.n_pts_dec
-            self.request_n_pts = min(
+            self.n_pts_target = min(
                     self.n_pts_export_max,
                     N_tot
                     )
-        else:
+        elif self.grid_type == "lin_fixed_step":
             x_step = self.x_step
-            self.request_n_pts = min(
+            if (isnan((x_step, self.x_export_start, self.x_export_end)).any()
+                    or isclose(x_step, 0.0, atol=self.plot_model.atol)):
+                return
+            self.n_pts_target = min(
                     self.n_pts_export_max,
                     1 + int((self.x_export_end - self.x_export_start) / x_step)
                     )
 
     def _update_n_pts_dec(self):
+        if (isnan((self.x_export_start, self.x_export_end)).any()
+            or isclose((self.x_export_start, self.x_export_end), (0, 0),
+                        atol=self.plot_model.atol).any()):
+            return
         x_start_lin = np.log10(self.x_export_start)
         x_end_lin = np.log10(self.x_export_end)
         n_dec = x_end_lin - x_start_lin
-        self.n_pts_dec = self.request_n_pts / n_dec
+        self.n_pts_dec = self.n_pts_target / n_dec
 
     def _update_x_step(self):
+        if isnan((self.x_export_start, self.x_export_end)).any():
+            return
         self.x_step = (self.x_export_end - self.x_export_start
-                       ) / self.request_n_pts
+                       ) / self.n_pts_target
 
 
 class PlotModel(QObject):
@@ -866,6 +865,9 @@ class Trace(QObject):
         # with its output values exponentiated.
         # In case of lin X axis, this is a copy.
         self.f_interp = None
+        # Final output is two vectors, representing X points and Y points.
+        self.x_output: Optional[np.ndarray] = None
+        self.y_output: Optional[np.ndarray] = None
         # Post processing functions for output data
         self.output_funcs = {
                 "plain": self.f_interp,
