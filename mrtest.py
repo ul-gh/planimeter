@@ -20,14 +20,19 @@ class SpiceTemplate(Template):
 
 
 class SpiceConversions():
-    # This must be sorted by placing longest key strings first, i.e. "meg"
-    si_map = {"f": "E-15", "p": "E-12", "n": "E-9", "u": "E-6", 
+    si_map = {"a": "E-18", "f": "E-15", "p": "E-12", "n": "E-9", "u": "E-6", 
               "m": "E-3", "k": "E3", "meg": "E6", "g": "E9", "t": "E12"}
-    _sorted_keys = sorted(si_map)
-    _replacer_re = re.compile("|".join(_sorted_keys), re.IGNORECASE)
-    _replacer = lambda self, m: self._replacer_re.sub(
-                        lambda n: self.si_map[n[0].lower()], m[0])
-    _finder_re = re.compile("(\d*\.?\d+(?:[fpumkg]?|(?:meg)?))", re.IGNORECASE)
+    _suffix_re = re.compile(r"(\d*\.?\d+)([afpnumkgt]|(?:meg))", re.IGNORECASE)
+    _tuple_re = re.compile(r"((?:\d*\.?\d+)(?:[eE][+-]?\d+)?),[ \t]*"
+                           r"((?:\d*\.?\d+)(?:[eE][+-]?\d+)?)")
 
-    def spice_to_float_str(self, s: str) -> str:
-        return self._finder_re.sub(self._replacer, s)
+    def spice_to_float_str(self, spice_number_str: str) -> str:
+        return self._suffix_re.sub(lambda m: m[1] + self.si_map[m[2]],
+                                   spice_number_str)
+    
+    def spice_to_list(self, spice_number_str: str):
+        float_str = self.spice_to_float_str(spice_number_str)
+        matches_iterator = self._tuple_re.finditer(float_str)
+        return [[float(m[1]), float(m[2])] for m in matches_iterator]
+
+sc = SpiceConversions()
