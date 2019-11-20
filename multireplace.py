@@ -1,3 +1,5 @@
+import re
+
 def multireplace(string, replacements, ignore_case=False):
     """
     Given a string and a replacement map, it returns the replaced string.
