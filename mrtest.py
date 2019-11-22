@@ -11,9 +11,9 @@ import re
 with open("tmp/netlist_1.cir", "rt") as f:
     netlist = f.read()
 
-test_table = (".func f_C_ISS(v_DG) {TABLE(v_DG, 0.0, 9622.0E-12, 6.6,"
+test_table = (".func f_C_ISS(v_DG) {TABLE(v_DG, 0.0, 9622.0E-12, 6.6, "
               "6088.0E-12, 15.9, 5038.7E-12, 28.9, 4741.4E-12, 47.5, "
-              "4499.5E-12, 85.0, 4401.8E-12, 601.2, 4469.3E-12)}")
+              "4499.5E-12, 85.0, 4401.8E-12ohms, 601.2, 4469.3pf)}")
 
 replacements = {"$r_1": "Foo_123"}
 replacements_wo = {"r_1": "Foo_123"}
@@ -22,29 +22,41 @@ class SpiceTemplate(Template):
     delimiter = "_$_"
 
 
-
 class SpiceConversions():
     si_map = {None: "", "f": "E-15", "p": "E-12", "n": "E-9", "u": "E-6", 
               "m": "E-3", "k": "E3", "meg": "E6", "g": "E9", "t": "E12"}
     # matches valid spice numbers with optional scale suffix and unit
-    _suffix_re = re.compile(r"[^a-z\d](\d*\.?\d+)([fpnumkgt]|(?:meg))?[a-z]*",
-                            re.IGNORECASE)
+    _join_lines_strip_comments_re = re.compile(r"\n[ \t]*\+|[ \t]*\*.*")
+    _suffix_re = re.compile(
+            r"([({,=] *\d*\.?\d+)([fpnumkgt]|(?:meg))?(e[+-]\d+)?[a-z]*",
+            re.IGNORECASE)
     _tuple_re = re.compile(r"((?:\d*\.?\d+)(?:[eE][+-]?\d+)?),[ \t]*"
                            r"((?:\d*\.?\d+)(?:[eE][+-]?\d+)?)")
 
-    def netlist_to_float(self, netlist: str) -> str:
-        """Convert all numbers in a spice-compatible input string
-        (e.g. a netlist) into valid floating point number strings.
+    def normalize(self, netlist: str) -> str:
+        """Normalize a Spice netlist
         
-        This removes all units from the number strings as well.
+        This:
+            - replaces the spice number format ("4.7kohms") by
+              standard floating-point string notation,
+              
+            - removes also the units attached to the numbers,
+            
+            - removes all comments from the file and
+            
+            - concatenates lines joined by a line-continuation ("+")
+              character.
         """
-        return self._suffix_re.sub(lambda m: m[1] + self.si_map[m[2]], netlist)
+        stripped_netlist = self._join_lines_strip_comments_re.sub("", netlist)
+        def join_number(m):
+            return m[1] + self.si_map[m[2]] + "" if m[3] is None else m[3]
+        return self._suffix_re.sub(join_number, stripped_netlist)
     
     def table_to_tuples(self, spice_table: str):
         """Render the interleaved values from a spice piece-wise linear
         lookup table ("TABLE") as a list of tuples.
         """
-        float_str = self.netlist_to_float(spice_table)
+        float_str = self.normalize(spice_table)
         matches_iterator = self._tuple_re.finditer(float_str)
         return [(float(m[1]), float(m[2])) for m in matches_iterator]
 
