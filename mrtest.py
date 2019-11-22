@@ -1,10 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Nov 20 11:17:26 2019
-
-@author: lukas01
-"""
-#from multireplace import multireplace
 from string import Template
 import re
 
@@ -15,9 +9,7 @@ test_table = (".func f_C_ISS(v_DG) {TABLE(v_DG, 0.0, 9622.0E-12, 6.6, "
               "6088.0E-12, 15.9, 5038.7E-12, 28.9, 4741.4E-12, 47.5, "
               "4499.5E-12, 85.0, 4401.8E-12ohms, 601.2, 4469.3pf)}")
 
-replacements = {"$r_1": "Foo_123"}
-replacements_wo = {"r_1": "Foo_123"}
-
+    
 class SpiceTemplate(Template):
     delimiter = "_$_"
 
@@ -49,7 +41,7 @@ class SpiceConversions():
         """
         stripped_netlist = self._join_lines_strip_comments_re.sub("", netlist)
         def join_number(m):
-            return m[1] + self.si_map[m[2]] + "" if m[3] is None else m[3]
+            return m[1] + self.si_map[m[2]] + ("" if m[3] is None else m[3])
         return self._suffix_re.sub(join_number, stripped_netlist)
     
     def table_to_tuples(self, spice_table: str):
@@ -68,5 +60,11 @@ class SpiceConversions():
         """
         tuples = self.table_to_tuples(spice_table)
         return ([i for i, j in tuples], [j for i, j in tuples])
+    
+    def lists_to_table(self, name: str, arg: str, pwl_lists: tuple):
+        tuples = [f"{arg:g}, {val:g}" for arg, val in zip(*pwl_lists)]
+        tuples_str = ", ".join(tuples)
+        return f".func {name}({arg}) {{TABLE({arg}, {tuples_str})}}"
+    
 
 sc = SpiceConversions()
