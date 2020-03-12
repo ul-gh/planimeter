@@ -50,7 +50,7 @@ class RuntimeConfig():
         except FileNotFoundError:
             logger.info("Config file not found, using defaults...")
         except IOError as e:
-            logger.critical("Error loading config file: ", e)
+            logger.critical("Error loading config file: %s", e)
  
     def store_to_configfile(self):
         logger.info("Storing configuration...")
@@ -58,18 +58,18 @@ class RuntimeConfig():
             with open(self.app_conf.config_file_name, "wb") as f:
                 pickle.dump(vars(self), f)
         except IOError as e:
-            logger.error("Error saving config file: ", e)
+            logger.error("Error saving config file: %s", e)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, script_global_namespace={}):
+    def __init__(self, interactive_env={}):
         super().__init__()
         # Load configuration either from defaults or from config file
         self.conf = conf = RuntimeConfig()
         conf.load_from_configfile()
 
         # Used to push PlotModelAssistant state to console namespace
-        self.interactive_env = script_global_namespace
+        self.interactive_env = interactive_env
 
         #self.setMinimumSize(QSize(*conf.app_conf.window_size))
         self.setWindowTitle("-- Plot Model Assistant -- Main Window --")
@@ -169,6 +169,7 @@ if __name__ == "__main__":
 
     # Shortcut for interactive use
     pma = mainw.pma
+    plots = mainw.pma.plots
 
     # When running from ipython shell, use its Qt GUI event loop
     # integration. Otherwise, start embedded IPython kernel.

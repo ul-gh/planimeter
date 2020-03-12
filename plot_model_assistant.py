@@ -29,10 +29,10 @@ from upylib.pyqt_debug import logExceptionSlot
 
 class PlotModelAssistant(QTabWidget):
     """PyQt5 widget for GUI interactive digitizing of data models.
-    
+
     Each data model consists of one or more plots and specific
     export and processing functions.
-    
+
     Each plot in turn has an individual coordinate system setup
     plus one or more data traces.
 
@@ -43,7 +43,7 @@ class PlotModelAssistant(QTabWidget):
           plot and graphic display with mouse interaction
         * Various text and button input widgets for setting model properties
         * Clipboard access and file import/export functions
-    
+
     2019-10-10 Ulrich Lukas
     """
     def __init__(self, mainw, conf):
@@ -53,19 +53,20 @@ class PlotModelAssistant(QTabWidget):
         self.set_wdir(conf.app_conf.wdir)
         # List of physical model specialised class objects,
         # all imported from physical_models.py
-        self.phys_models = [
+        self.phys_model_classes = [
                 member[1] for member
                 in inspect.getmembers(physical_models, inspect.isclass)
                 if member[1].__module__ == physical_models.__name__
                 ]
-        self.phys_model_names = [model.name for model in self.phys_models]
+        self.phys_model_names = [c.name for c in self.phys_model_classes]
+        # This later holds the instantiated model class object
+        self.model = None
         # Plots defined in above model classes are added to this list
         # by self.set_model() method.
         self.plots = []
         # Each plot has a corresponding digitizer instance
         self.digitizers = []
         # Current state
-        self.curr_model = None
         self.curr_plot_index = -1 # Becomes zero at first append/update
         self.curr_plot = None
         self.curr_digitizer = None
@@ -76,9 +77,9 @@ class PlotModelAssistant(QTabWidget):
         ########## Tab display on the left and right column
         #self.tabs = QTabWidget(self)
         # Select, configure and export physical data models
-        self.tab_physical_model = PhysicalModelTab(self, self.phys_models)
+        self.tab_physical_model = PhysicalModelTab(self, self.phys_model_classes)
         # The first tab is supposed to be always present for setting the
-        # multi-plot-model, while the other right-side tabs 
+        # multi-plot-model.
         #self.tabs.addTab(self.tab_physical_model, "Physical Model")
         self.addTab(self.tab_physical_model, "Physical Model")
         # This adds more tabs, one for each plot
@@ -93,16 +94,16 @@ class PlotModelAssistant(QTabWidget):
         ########## Connect foreign signals
 
     def set_model(self, phys_model):
-        if phys_model is self.curr_model:
+        if phys_model is self.model:
             return
         #if phys_model.hasData() and not self.confirm_delete():
         #    return
         # Remove all plots from current (old) model
-        if self.curr_model is not None:
-            for index in range(len(self.curr_model.plots)):
+        if self.model is not None:
+            for index in range(len(self.model.plots)):
                 self.remove_plot(index)
         # Set new model
-        self.curr_model = phys_model
+        self.model = phys_model
         for plot in phys_model.plots:
             self.add_plot(plot)
 
@@ -121,7 +122,9 @@ class PlotModelAssistant(QTabWidget):
         self.curr_plot_index = new_index
         # Add current state to interactive (console) namespace
         self.mainw.interactive_env.update({
-                "model": self.curr_model,
+                "model": self.model,
+                "plots": self.plots,
+                "digitizers": self.digitizers,
                 "plot": self.curr_plot,
                 "digitizer": self.curr_digitizer,
                 "traces": self.curr_plot.traces,
@@ -132,7 +135,7 @@ class PlotModelAssistant(QTabWidget):
         logger.debug(
                 f"Removing plot: {plot_index} FIXME: Not yet complete? Must check.")
         if plot_index == self.curr_plot_index:
-            self.activate_plot_index[0]
+            self.activate_plot_index(0)
         digitizer = self.digitizers[plot_index]
         digitizer.mpl_widget.canvas_rescaled.disconnect()
         self.mainw.removeToolBar(digitizer.toolbar)
@@ -188,7 +191,7 @@ class PlotModelAssistant(QTabWidget):
 
 
 class PhysicalModelTab(QWidget):
-    def __init__(self, digitizer, phys_models):
+    def __init__(self, digitizer, phys_model_classes):
         super().__init__(digitizer)
         self.digitizer = digitizer
 
