@@ -24,7 +24,7 @@ from ipykernel.kernelapp import IPKernelApp
 
 from qtconsole.client import QtKernelClient
 # from qtconsole.qt import QtGui, QtCore
-from PyQt5 import QtGui, QtCore
+from PyQt5 import QtGui, QtCore, QtWidgets
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 
 class EmbeddedIPythonKernel(QtCore.QObject):
@@ -137,7 +137,7 @@ class EmbeddedIPythonKernel(QtCore.QObject):
                     break
             time.sleep(0.1)
 
-        app = QtGui.QApplication(["Plot Workbench Console"])
+        app = QtWidgets.QApplication(["Plot Workbench Console"])
 
         kernel_client = QtKernelClient(connection_file=conn_filename)
         kernel_client.load_connection_file()
