@@ -13,6 +13,7 @@ build-*
 tmp/*
 dist
 *.egg-info
+.vscode/
 
 .env
 Vagrantfile

@@ -23,7 +23,8 @@ from ipykernel.embed import embed_kernel
 from ipykernel.kernelapp import IPKernelApp
 
 from qtconsole.client import QtKernelClient
-from qtconsole.qt import QtGui, QtCore
+# from qtconsole.qt import QtGui, QtCore
+from PyQt5 import QtGui, QtCore
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 
 class EmbeddedIPythonKernel(QtCore.QObject):
